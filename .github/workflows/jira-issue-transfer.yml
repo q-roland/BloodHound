@@ -36,6 +36,6 @@ jobs:
                 issuetype: 'Bug Report'
                 summary: ${{ github.event.issue.title }}
                 description: ${{ github.event.issue.body }}
-                fields: '{"labels":["GitHubReport"]}'
+                fields: '[ {"labels":["GitHubReport"]} {"customfield_10167": "${{ github.event.url }}"}]'
           env:
                 GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
