@@ -18,6 +18,7 @@ import { faArrowDown, faInbox } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Box, useTheme } from '@mui/material';
 import { useState, DragEvent, MouseEvent, useRef, ChangeEvent } from 'react';
+import { acceptedFileList } from '../../utils';
 
 const FileDrop: React.FC<{
     onDrop: (files: any) => void;
@@ -26,6 +27,8 @@ const FileDrop: React.FC<{
     const inputRef = useRef<HTMLInputElement>(null);
     const [isDragActive, setDragActive] = useState(false);
     const [isHoverActive, setHoverActive] = useState(false);
+
+    console.log(acceptedFileList);
 
     const handleClick = (_e: MouseEvent) => {
         if (inputRef.current) inputRef.current.click();

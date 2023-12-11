@@ -53,6 +53,7 @@ export default defineConfig(({ mode }) => {
                 '@fortawesome/free-solid-svg-icons',
                 '@fortawesome/react-fontawesome',
                 'downshift',
+                'jszip',
                 'react-query',
                 'notistack',
             ],
