@@ -19,20 +19,7 @@ import { useState } from 'react';
 import FileDrop from '../FileDrop';
 import FileStatusListItem from '../FileStatusListItem';
 import { FileForIngest, FileStatus, FileUploadStep } from './types';
-
-const MAX_FILE_SIZE = 1000000000;
-const ACCEPTED_MIME_TYPES = ['application/json'];
-
-const validateFile = (file: File): string[] => {
-    const errors = [];
-    if (file.size > MAX_FILE_SIZE) {
-        errors.push('File cannot be larger than 1 GB');
-    }
-    if (!ACCEPTED_MIME_TYPES.includes(file.type)) {
-        errors.push('File must be valid JSON');
-    }
-    return errors;
-};
+import { validateFile } from '../..';
 
 const FileUploadDialog: React.FC<{
     files: FileForIngest[];
@@ -57,16 +44,18 @@ const FileUploadDialog: React.FC<{
 }) => {
     const [fileUploadStep, setFileUploadStep] = useState<FileUploadStep>(FileUploadStep.ADD_FILES);
 
-    const handleFileDrop = (files: FileList | null) => {
+    const handleFileDrop = async (files: FileList | null) => {
         if (files && files.length > 0) {
-            const validatedFiles: FileForIngest[] = [...files].map((file) => {
-                const errors = validateFile(file);
-                if (errors.length > 0) {
-                    return { file, errors, status: FileStatus.READY };
-                } else {
-                    return { file, status: FileStatus.READY };
-                }
-            });
+            const validatedFiles: FileForIngest[] = await Promise.all(
+                [...files].map(async (file) => {
+                    const errors = await validateFile(file);
+                    if ((errors?.length ?? 0) > 0) {
+                        return { file, errors, status: FileStatus.READY };
+                    } else {
+                        return { file, status: FileStatus.READY };
+                    }
+                })
+            );
             onAppendFiles(validatedFiles);
         }
     };
@@ -97,7 +86,9 @@ const FileUploadDialog: React.FC<{
             }}>
             <DialogContent>
                 <>
-                    {fileUploadStep === FileUploadStep.ADD_FILES && <FileDrop onDrop={handleFileDrop} />}
+                    {fileUploadStep === FileUploadStep.ADD_FILES && (
+                        <FileDrop onDrop={handleFileDrop} acceptedFileTypes={['json', 'zip']} />
+                    )}
                     {(fileUploadStep === FileUploadStep.CONFIRMATION || fileUploadStep === FileUploadStep.UPLOAD) && (
                         <Box fontSize={20} marginBottom={5}>
                             {uploadMessage ||

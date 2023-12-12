@@ -18,17 +18,18 @@ import { faArrowDown, faInbox } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Box, useTheme } from '@mui/material';
 import { useState, DragEvent, MouseEvent, useRef, ChangeEvent } from 'react';
-import { acceptedFileList } from '../../utils';
+import { formatAcceptedTypes } from '../../utils';
 
 const FileDrop: React.FC<{
     onDrop: (files: any) => void;
-}> = ({ onDrop }) => {
+    acceptedFileTypes?: string | Array<string>;
+}> = ({ onDrop, acceptedFileTypes = [] }) => {
     const theme = useTheme();
     const inputRef = useRef<HTMLInputElement>(null);
     const [isDragActive, setDragActive] = useState(false);
     const [isHoverActive, setHoverActive] = useState(false);
 
-    console.log(acceptedFileList);
+    const accepted = formatAcceptedTypes(acceptedFileTypes);
 
     const handleClick = (_e: MouseEvent) => {
         if (inputRef.current) inputRef.current.click();
@@ -80,6 +81,7 @@ const FileDrop: React.FC<{
                 multiple={true}
                 onChange={handleChange}
                 hidden
+                accept={accepted.join(',')}
             />
             <FontAwesomeIcon icon={isDragActive ? faArrowDown : faInbox} size='3x' />
             <p>Click here or drag and drop to upload files</p>
