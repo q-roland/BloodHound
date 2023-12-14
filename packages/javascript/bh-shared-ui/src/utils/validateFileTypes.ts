@@ -28,7 +28,7 @@ export const FILE_TYPES = { // is this something that is going to be worth it?? 
 	}
 } as const
 
-type acceptedMimeTypes = keyof typeof FILE_TYPES
+export type acceptedMimeTypes = keyof typeof FILE_TYPES
 
 const MAX_FILE_SIZE = 1000000000;
 const DEFAULT_ACCEPTED_MIME_TYPES: Array<acceptedMimeTypes> = ['json', 'zip'];

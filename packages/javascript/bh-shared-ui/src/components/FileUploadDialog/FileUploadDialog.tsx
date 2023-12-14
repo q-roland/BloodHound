@@ -83,7 +83,7 @@ const FileUploadDialog: React.FC<{
             <DialogContent>
                 <>
                     {fileUploadStep === FileUploadStep.ADD_FILES && (
-                        <FileDrop onDrop={handleFileDrop} acceptedFileTypes={['application/json', 'application/zip']} />
+                        <FileDrop onDrop={handleFileDrop} acceptedFileTypes={['json', 'zip']} />
                     )}
                     {(fileUploadStep === FileUploadStep.CONFIRMATION || fileUploadStep === FileUploadStep.UPLOAD) && (
                         <Box fontSize={20} marginBottom={5}>
