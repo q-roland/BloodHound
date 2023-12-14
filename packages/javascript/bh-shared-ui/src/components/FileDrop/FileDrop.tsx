@@ -18,11 +18,11 @@ import { faArrowDown, faInbox } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Box, useTheme } from '@mui/material';
 import { useState, DragEvent, MouseEvent, useRef, ChangeEvent } from 'react';
-import { formatAcceptedTypes } from '../../utils';
+import { acceptedMimeTypes, formatAcceptedTypes } from '../../utils';
 
 const FileDrop: React.FC<{
     onDrop: (files: any) => void;
-    acceptedFileTypes?: string | Array<string>;
+    acceptedFileTypes?: acceptedMimeTypes | Array<acceptedMimeTypes>;
 }> = ({ onDrop, acceptedFileTypes = [] }) => {
     const theme = useTheme();
     const inputRef = useRef<HTMLInputElement>(null);
