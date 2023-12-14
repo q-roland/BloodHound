@@ -28,8 +28,10 @@ export const FILE_TYPES = { // is this something that is going to be worth it?? 
 	}
 } as const
 
+type acceptedMimeTypes = keyof typeof FILE_TYPES
+
 const MAX_FILE_SIZE = 1000000000;
-const DEFAULT_ACCEPTED_MIME_TYPES: Array<keyof typeof FILE_TYPES> = ['json', 'zip']; // should this be mime or ext?
+const DEFAULT_ACCEPTED_MIME_TYPES: Array<acceptedMimeTypes> = ['json', 'zip'];
 
 /**
  * 
@@ -37,17 +39,20 @@ const DEFAULT_ACCEPTED_MIME_TYPES: Array<keyof typeof FILE_TYPES> = ['json', 'zi
  * @param acceptedTypes files types that are allowed. Defaults to application/json and application/zip
  * @returns 
  */
-export const validateFile = async (file: File, acceptedTypes?: Array<keyof typeof FILE_TYPES>) => {
-	const accepted = acceptedTypes ?? DEFAULT_ACCEPTED_MIME_TYPES
+export const validateFile = async (file: File, acceptedTypes = DEFAULT_ACCEPTED_MIME_TYPES) => {
+	const acceptedMap = acceptedTypes.reduce((a: Record<string, boolean>, c) => {
+		a[FILE_TYPES[c].ext] = true
+		a[FILE_TYPES[c].ext] = true
+		return a
+	}, {})
 	const errors = [];
 
-
-	const invalidFileType = accepted.every(type => FILE_TYPES[type].mime !== file.type)
+	const invalidFileType = acceptedMap[file.type]
 	if (invalidFileType) {
 		errors.push('Invalid file type');
 	}
 
-	if (file.type === 'application/zip') { // is there another way for these to show up
+	if (file.type === 'application/zip') {
 		const jsZip = new JSZip()
 		const zipFiles = await openZip(jsZip, file)
 
@@ -57,17 +62,28 @@ export const validateFile = async (file: File, acceptedTypes?: Array<keyof typeo
 		};
 
 
-		console.log('zipFiles -- COPY OBJECT AND SEND TO BEN PLEASE :) ', zipFiles) // remove after testing
-		const containsNonJsonFiles = Object.entries(zipFiles)
-			.some(async ([f, m]) => {
-				const notJson = !f.toLowerCase().endsWith('.json') // check that it ends with an acceptedType
-				const notMetaDataFile = !f.startsWith('__') // get the EXACT string from a mac, windows, and linux machine 
+		console.log('zipFiles -- COPY OBJECT AND SEND TO BEN PLEASE :) ', zipFiles) // TODO: remove after testing
 
-				return notMetaDataFile && notJson
+		const zipContainsInvalidTypes = Object.entries(zipFiles)
+			.some(([f, m]) => {
+				// get the EXACT string from a mac, windows, and linux machine - referring to above
+				const metaDataFiles = f.startsWith('__')
+				if (metaDataFiles) return false
+
+				const filenameParts = f.split('.')
+				if (filenameParts.length > 1) {
+					const ext = filenameParts.pop()
+					if (!ext) return false
+
+					const invalidType = !acceptedMap[ext]
+					return invalidType
+				}
+
+				return false
 			})
 
-		if (containsNonJsonFiles) {
-			errors.push('Zip contains non JSON files')
+		if (zipContainsInvalidTypes) {
+			errors.push('Zip contains invalid file types')
 		}
 	}
 

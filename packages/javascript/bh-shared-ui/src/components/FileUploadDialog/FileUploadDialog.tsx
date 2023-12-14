@@ -49,11 +49,7 @@ const FileUploadDialog: React.FC<{
             const validatedFiles: FileForIngest[] = await Promise.all(
                 [...files].map(async (file) => {
                     const errors = await validateFile(file);
-                    if ((errors?.length ?? 0) > 0) {
-                        return { file, errors, status: FileStatus.READY };
-                    } else {
-                        return { file, status: FileStatus.READY };
-                    }
+                    return { file, errors, status: FileStatus.READY };
                 })
             );
             onAppendFiles(validatedFiles);

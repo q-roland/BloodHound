@@ -17,7 +17,7 @@
 export type FileForIngest = {
     file: File;
     status: FileStatus;
-    errors?: string[];
+    errors: string[];
 };
 
 export enum FileStatus {
