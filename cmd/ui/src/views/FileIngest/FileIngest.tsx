@@ -58,7 +58,7 @@ const FileIngest = () => {
     };
 
     useEffect(() => {
-        const filesHaveErrors = filesForIngest.filter((file) => file.errors).length > 0;
+        const filesHaveErrors = filesForIngest.filter((file) => file.errors?.length).length > 0;
         const filesAreUploading = filesForIngest.filter((file) => file.status === FileStatus.UPLOADING).length > 0;
 
         if (filesHaveErrors || filesAreUploading || !filesForIngest.length) {
