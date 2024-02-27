@@ -17,6 +17,7 @@
 parameters:
   - $ref: './../../parameters/header/prefer.yaml'
 put:
+  operationId: UpdateClientInfo
   summary: Update Client Values
   description: |
     Endpoint for clients to update their own information at startup.

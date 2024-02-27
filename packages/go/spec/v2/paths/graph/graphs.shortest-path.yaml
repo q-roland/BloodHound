@@ -17,12 +17,13 @@
 parameters:
   - $ref: './../../parameters/header/prefer.yaml'
 get:
+  operationId: GetShortestPath
+  summary: Get the shortest path graph
   description: A graph of the shortest path from `start_node` to `end_node`.
   tags:
     - Graph
     - Community
     - Enterprise
-  summary: Get the shortest path graph
   parameters:
     - name: start_node
       description: The start node objectId

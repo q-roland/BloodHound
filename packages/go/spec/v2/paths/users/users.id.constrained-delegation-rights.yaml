@@ -18,7 +18,7 @@ parameters:
   - $ref: './../../parameters/header/prefer.yaml'
   - $ref: './../../parameters/path/object-id.yaml'
 get:
-  operationId: GetUserEntityConstrained DelegationRights
+  operationId: GetUserEntityConstrainedDelegationRights
   summary: Get User entity constrained delegation rights
   description: Get a list, graph, or count of the systems this user has constrained delegation rights to.
   tags:

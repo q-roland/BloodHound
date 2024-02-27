@@ -30,12 +30,10 @@ post:
           properties:
             name:
               type: string
-              required: true
               description: Name of the new SAML provider.
             metadata:
               type: string
               format: binary
-              required: true
               description: Metadata XML file.
   responses:
     200:

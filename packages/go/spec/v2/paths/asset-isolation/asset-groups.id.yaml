@@ -97,12 +97,13 @@ put:
       $ref: './../../responses/internal-server-error.yaml'
 
 delete:
+  operationId: DeleteAssetGroup
+  summary: Delete an asset group
   description: Deletes an asset group
   tags:
     - Asset Isolation
     - Community
     - Enterprise
-  summary: Delete an asset group
   responses:
     200:
       $ref: './../../responses/success-empty.yaml'

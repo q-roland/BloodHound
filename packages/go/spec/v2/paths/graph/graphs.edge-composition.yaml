@@ -17,6 +17,8 @@
 parameters:
   - $ref: './../../parameters/header/prefer.yaml'
 get:
+  operationId: GetPathComposition
+  summary: Get path composition
   description: Returns a graph representing the various nodes and edges that make up the complex post-processed edge.
   tags:
     - Graph

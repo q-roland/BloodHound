@@ -36,7 +36,6 @@ get:
             type: object
             properties:
               data:
-                nullable: true
                 oneOf:
                   - $ref: './../../schemas/model/user.yaml'
                   - $ref: './../../schemas/model/client.yaml'

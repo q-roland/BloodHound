@@ -42,13 +42,15 @@ get:
       $ref: './../../responses/too-many-requests.yaml'
     500:
       $ref: './../../responses/internal-server-error.yaml'
+
 patch:
+  operationId: UpdateDomainEntity
+  summary: Update the Domain entity
   description: Updates the supported properties on the Domain entity.
   tags:
     - Domains
     - Community
     - Enterprise
-  summary: Update the Domain entity
   requestBody:
     description: The patch request body for updating Domain
     content:
