@@ -179,6 +179,7 @@ x-tagGroups:
       - Groups
       - Data Quality
       - Datapipe
+      - Cypher
   - name: Enterprise Only
     tags:
       - EULA

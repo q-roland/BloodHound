@@ -15,15 +15,26 @@
 # SPDX-License-Identifier: Apache-2.0
 
 type: integer
-description: This enum describes the current status of a Job.
+description: |
+  This enum describes the current status of a Job. Values are:
+  - `-1` Invalid
+  - `0` Ready
+  - `1` Running
+  - `2` Complete
+  - `3` Canceled
+  - `4` Timed Out
+  - `5` Failed
+  - `6` Ingesting
+  - `7` Analyzing
+  - `8` Partially Complete
 enum:
-  - -1 # invalid
-  - 0  # ready
-  - 1  # running
-  - 2  # complete
-  - 3  # canceled
-  - 4  # timed out
-  - 5  # failed
-  - 6  # ingesting
-  - 7  # analyzing
-  - 8  # partially complete
+  - -1
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
