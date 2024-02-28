@@ -58,6 +58,7 @@ const (
 	ErrorResponsePayloadUnmarshalError              = "error unmarshalling JSON payload"
 	ErrorResponseUserSelfDisable                    = "user attempted to disable themselves"
 	ErrorResponseDetailsBadPathParameter            = "one or more request URI path parameters are missing or invalid"
+	ErrorResponseAGTagWhiteSpace                    = "asset group tags must not contain whitespace"
 
 	FmtErrorResponseDetailsBadQueryParameters = "there are errors in the query parameters: %v"
 )
