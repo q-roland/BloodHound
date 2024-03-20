@@ -21,13 +21,16 @@ package database
 import (
 	"context"
 	"fmt"
+	"github.com/specterops/bloodhound/src/services/agi"
+	"github.com/specterops/bloodhound/src/services/dataquality"
+	"github.com/specterops/bloodhound/src/services/fileupload"
+	"github.com/specterops/bloodhound/src/services/ingest"
 	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/specterops/bloodhound/errors"
 	"github.com/specterops/bloodhound/log"
 	"github.com/specterops/bloodhound/src/auth"
-	"github.com/specterops/bloodhound/src/ctx"
 	"github.com/specterops/bloodhound/src/database/migration"
 	"github.com/specterops/bloodhound/src/model"
 	"github.com/specterops/bloodhound/src/model/appcfg"
@@ -52,96 +55,102 @@ type Database interface {
 	appcfg.ParameterService
 	appcfg.FeatureFlagService
 
-	Close()
-	GetConfigurationParameter(parameter string) (appcfg.Parameter, error)
-	SetConfigurationParameter(appConfig appcfg.Parameter) error
-	GetAllConfigurationParameters() (appcfg.Parameters, error)
-	CreateIngestTask(ingestTask model.IngestTask) (model.IngestTask, error)
-	GetAllIngestTasks() (model.IngestTasks, error)
-	DeleteIngestTask(ingestTask model.IngestTask) error
-	GetIngestTasksForJob(jobID int64) (model.IngestTasks, error)
-	GetUnfinishedIngestIDs() ([]int64, error)
+	Close(ctx context.Context)
+
+	// Ingest
+	ingest.IngestData
+	GetAllIngestTasks(ctx context.Context) (model.IngestTasks, error)
+	DeleteIngestTask(ctx context.Context, ingestTask model.IngestTask) error
+	GetIngestTasksForJob(ctx context.Context, jobID int64) (model.IngestTasks, error)
+
+	// Asset Groups
+	agi.AgiData
 	CreateAssetGroup(ctx context.Context, name, tag string, systemGroup bool) (model.AssetGroup, error)
 	UpdateAssetGroup(ctx context.Context, assetGroup model.AssetGroup) error
 	DeleteAssetGroup(ctx context.Context, assetGroup model.AssetGroup) error
-	GetAssetGroup(id int32) (model.AssetGroup, error)
-	GetAllAssetGroups(order string, filter model.SQLFilter) (model.AssetGroups, error)
-	SweepAssetGroupCollections()
-	GetAssetGroupCollections(assetGroupID int32, order string, filter model.SQLFilter) (model.AssetGroupCollections, error)
-	GetLatestAssetGroupCollection(assetGroupID int32) (model.AssetGroupCollection, error)
-	GetTimeRangedAssetGroupCollections(assetGroupID int32, from int64, to int64, order string) (model.AssetGroupCollections, error)
-	GetAssetGroupSelector(id int32) (model.AssetGroupSelector, error)
+	SweepAssetGroupCollections(ctx context.Context)
+	GetAssetGroupCollections(ctx context.Context, assetGroupID int32, order string, filter model.SQLFilter) (model.AssetGroupCollections, error)
+	GetLatestAssetGroupCollection(ctx context.Context, assetGroupID int32) (model.AssetGroupCollection, error)
+	GetTimeRangedAssetGroupCollections(ctx context.Context, assetGroupID int32, from int64, to int64, order string) (model.AssetGroupCollections, error)
+	GetAssetGroupSelector(ctx context.Context, id int32) (model.AssetGroupSelector, error)
 	DeleteAssetGroupSelector(ctx context.Context, selector model.AssetGroupSelector) error
-	UpdateAssetGroupSelectors(ctx ctx.Context, assetGroup model.AssetGroup, selectorSpecs []model.AssetGroupSelectorSpec, systemSelector bool) (model.UpdatedAssetGroupSelectors, error)
-	CreateAssetGroupCollection(collection model.AssetGroupCollection, entries model.AssetGroupCollectionEntries) error
-	RawFirst(value any) error
-	Wipe() error
-	Migrate() error
-	RequiresMigration() (bool, error)
-	CreateAuditLog(auditLog model.AuditLog) error
+	UpdateAssetGroupSelectors(ctx context.Context, assetGroup model.AssetGroup, selectorSpecs []model.AssetGroupSelectorSpec, systemSelector bool) (model.UpdatedAssetGroupSelectors, error)
+
+	Wipe(ctx context.Context) error
+	Migrate(ctx context.Context) error
+	RequiresMigration(ctx context.Context) (bool, error)
+	CreateInstallation(ctx context.Context) (model.Installation, error)
+	GetInstallation(ctx context.Context) (model.Installation, error)
+	HasInstallation(ctx context.Context) (bool, error)
+
+	// Audit Logs
+	CreateAuditLog(ctx context.Context, auditLog model.AuditLog) error
 	AppendAuditLog(ctx context.Context, entry model.AuditEntry) error
-	ListAuditLogs(before, after time.Time, offset, limit int, order string, filter model.SQLFilter) (model.AuditLogs, int, error)
-	CreateRole(role model.Role) (model.Role, error)
-	UpdateRole(role model.Role) error
-	GetAllRoles(order string, filter model.SQLFilter) (model.Roles, error)
-	GetRoles(ids []int32) (model.Roles, error)
-	GetRolesByName(names []string) (model.Roles, error)
-	GetRole(id int32) (model.Role, error)
-	LookupRoleByName(name string) (model.Role, error)
-	GetAllPermissions(order string, filter model.SQLFilter) (model.Permissions, error)
-	GetPermission(id int) (model.Permission, error)
-	CreatePermission(permission model.Permission) (model.Permission, error)
-	InitializeSAMLAuth(adminUser model.User, samlProvider model.SAMLProvider) (model.SAMLProvider, model.Installation, error)
-	InitializeSecretAuth(adminUser model.User, authSecret model.AuthSecret) (model.Installation, error)
-	CreateInstallation() (model.Installation, error)
-	GetInstallation() (model.Installation, error)
-	HasInstallation() (bool, error)
+	ListAuditLogs(ctx context.Context, before, after time.Time, offset, limit int, order string, filter model.SQLFilter) (model.AuditLogs, int, error)
+
+	// Roles
+	GetAllRoles(ctx context.Context, order string, filter model.SQLFilter) (model.Roles, error)
+	GetRoles(ctx context.Context, ids []int32) (model.Roles, error)
+	GetRole(ctx context.Context, id int32) (model.Role, error)
+
+	// Permissions
+	GetAllPermissions(ctx context.Context, order string, filter model.SQLFilter) (model.Permissions, error)
+	GetPermission(ctx context.Context, id int) (model.Permission, error)
+
+	// Users
 	CreateUser(ctx context.Context, user model.User) (model.User, error)
 	UpdateUser(ctx context.Context, user model.User) error
-	GetAllUsers(order string, filter model.SQLFilter) (model.Users, error)
-	GetUser(id uuid.UUID) (model.User, error)
+	GetAllUsers(ctx context.Context, order string, filter model.SQLFilter) (model.Users, error)
+	GetUser(ctx context.Context, id uuid.UUID) (model.User, error)
 	DeleteUser(ctx context.Context, user model.User) error
-	LookupUser(principalName string) (model.User, error)
+	LookupUser(ctx context.Context, principalName string) (model.User, error)
+
+	// Auth
 	CreateAuthToken(ctx context.Context, authToken model.AuthToken) (model.AuthToken, error)
-	UpdateAuthToken(authToken model.AuthToken) error
-	GetAllAuthTokens(order string, filter model.SQLFilter) (model.AuthTokens, error)
-	GetAuthToken(id uuid.UUID) (model.AuthToken, error)
-	ListUserTokens(userID uuid.UUID, order string, filter model.SQLFilter) (model.AuthTokens, error)
-	GetUserToken(userId, tokenId uuid.UUID) (model.AuthToken, error)
+	UpdateAuthToken(ctx context.Context, authToken model.AuthToken) error
+	GetAllAuthTokens(ctx context.Context, order string, filter model.SQLFilter) (model.AuthTokens, error)
+	GetAuthToken(ctx context.Context, id uuid.UUID) (model.AuthToken, error)
+	GetUserToken(ctx context.Context, userId, tokenId uuid.UUID) (model.AuthToken, error)
 	DeleteAuthToken(ctx context.Context, authToken model.AuthToken) error
 	CreateAuthSecret(ctx context.Context, authSecret model.AuthSecret) (model.AuthSecret, error)
-	GetAuthSecret(id int32) (model.AuthSecret, error)
+	GetAuthSecret(ctx context.Context, id int32) (model.AuthSecret, error)
 	UpdateAuthSecret(ctx context.Context, authSecret model.AuthSecret) error
 	DeleteAuthSecret(ctx context.Context, authSecret model.AuthSecret) error
+	InitializeSecretAuth(ctx context.Context, adminUser model.User, authSecret model.AuthSecret) (model.Installation, error)
+
+	// SAML
 	CreateSAMLIdentityProvider(ctx context.Context, samlProvider model.SAMLProvider) (model.SAMLProvider, error)
 	UpdateSAMLIdentityProvider(ctx context.Context, samlProvider model.SAMLProvider) error
-	LookupSAMLProviderByName(name string) (model.SAMLProvider, error)
-	GetAllSAMLProviders() (model.SAMLProviders, error)
-	GetSAMLProvider(id int32) (model.SAMLProvider, error)
-	GetSAMLProviderUsers(id int32) (model.Users, error)
+	LookupSAMLProviderByName(ctx context.Context, name string) (model.SAMLProvider, error)
+	GetAllSAMLProviders(ctx context.Context) (model.SAMLProviders, error)
+	GetSAMLProvider(ctx context.Context, id int32) (model.SAMLProvider, error)
+	GetSAMLProviderUsers(ctx context.Context, id int32) (model.Users, error)
 	DeleteSAMLProvider(ctx context.Context, samlProvider model.SAMLProvider) error
-	CreateUserSession(userSession model.UserSession) (model.UserSession, error)
-	LookupActiveSessionsByUser(user model.User) ([]model.UserSession, error)
-	EndUserSession(userSession model.UserSession)
-	GetUserSession(id int64) (model.UserSession, error)
-	SweepSessions()
-	CreateADDataQualityStats(stats model.ADDataQualityStats) (model.ADDataQualityStats, error)
-	GetADDataQualityStats(domainSid string, start time.Time, end time.Time, sort_by string, limit int, skip int) (model.ADDataQualityStats, int, error)
-	CreateADDataQualityAggregation(aggregation model.ADDataQualityAggregation) (model.ADDataQualityAggregation, error)
-	GetADDataQualityAggregations(start time.Time, end time.Time, sort_by string, limit int, skip int) (model.ADDataQualityAggregations, int, error)
-	CreateAzureDataQualityStats(stats model.AzureDataQualityStats) (model.AzureDataQualityStats, error)
-	GetAzureDataQualityStats(tenantId string, start time.Time, end time.Time, sort_by string, limit int, skip int) (model.AzureDataQualityStats, int, error)
-	CreateAzureDataQualityAggregation(aggregation model.AzureDataQualityAggregation) (model.AzureDataQualityAggregation, error)
-	GetAzureDataQualityAggregations(start time.Time, end time.Time, sort_by string, limit int, skip int) (model.AzureDataQualityAggregations, int, error)
-	CreateFileUploadJob(job model.FileUploadJob) (model.FileUploadJob, error)
-	UpdateFileUploadJob(job model.FileUploadJob) error
-	GetFileUploadJob(id int64) (model.FileUploadJob, error)
-	GetAllFileUploadJobs(skip int, limit int, order string, filter model.SQLFilter) ([]model.FileUploadJob, int, error)
-	GetFileUploadJobsWithStatus(status model.JobStatus) ([]model.FileUploadJob, error)
-	ListSavedQueries(userID uuid.UUID, order string, filter model.SQLFilter, skip, limit int) (model.SavedQueries, int, error)
-	CreateSavedQuery(userID uuid.UUID, name string, query string) (model.SavedQuery, error)
-	DeleteSavedQuery(id int) error
-	SavedQueryBelongsToUser(userID uuid.UUID, savedQueryID int) (bool, error)
+
+	// Sessions
+	CreateUserSession(ctx context.Context, userSession model.UserSession) (model.UserSession, error)
+	LookupActiveSessionsByUser(ctx context.Context, user model.User) ([]model.UserSession, error)
+	EndUserSession(ctx context.Context, userSession model.UserSession)
+	GetUserSession(ctx context.Context, id int64) (model.UserSession, error)
+	SweepSessions(ctx context.Context)
+
+	// Data Quality
+	dataquality.DataQualityData
+	GetADDataQualityStats(ctx context.Context, domainSid string, start time.Time, end time.Time, sort_by string, limit int, skip int) (model.ADDataQualityStats, int, error)
+	GetADDataQualityAggregations(ctx context.Context, start time.Time, end time.Time, sort_by string, limit int, skip int) (model.ADDataQualityAggregations, int, error)
+	GetAzureDataQualityStats(ctx context.Context, tenantId string, start time.Time, end time.Time, sort_by string, limit int, skip int) (model.AzureDataQualityStats, int, error)
+	GetAzureDataQualityAggregations(ctx context.Context, start time.Time, end time.Time, sort_by string, limit int, skip int) (model.AzureDataQualityAggregations, int, error)
+	DeleteAllDataQuality(ctx context.Context) error
+
+	// File Upload
+	fileupload.FileUploadData
+
+	// Saved Queries
+	ListSavedQueries(ctx context.Context, userID uuid.UUID, order string, filter model.SQLFilter, skip, limit int) (model.SavedQueries, int, error)
+	CreateSavedQuery(ctx context.Context, userID uuid.UUID, name string, query string) (model.SavedQuery, error)
+	DeleteSavedQuery(ctx context.Context, id int) error
+	SavedQueryBelongsToUser(ctx context.Context, userID uuid.UUID, savedQueryID int) (bool, error)
+	DeleteAssetGroupSelectorsForAssetGroups(ctx context.Context, assetGroupIds []int) error
 }
 
 type BloodhoundDB struct {
@@ -149,8 +158,8 @@ type BloodhoundDB struct {
 	idResolver auth.IdentityResolver // TODO: this really needs to be elsewhere. something something separation of concerns
 }
 
-func (s *BloodhoundDB) Close() {
-	if sqlDBRef, err := s.db.DB(); err != nil {
+func (s *BloodhoundDB) Close(ctx context.Context) {
+	if sqlDBRef, err := s.db.WithContext(ctx).DB(); err != nil {
 		log.Errorf("Failed to fetch SQL DB reference from GORM: %v", err)
 	} else if err := sqlDBRef.Close(); err != nil {
 		log.Errorf("Failed closing database: %v", err)
@@ -194,16 +203,12 @@ func OpenDatabase(connection string) (*gorm.DB, error) {
 	}
 }
 
-func (s *BloodhoundDB) RawFirst(value any) error {
-	return CheckError(s.db.Model(value).First(value))
-}
-
 func (s *BloodhoundDB) RawDelete(value any) error {
 	return CheckError(s.db.Delete(value))
 }
 
-func (s *BloodhoundDB) Wipe() error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+func (s *BloodhoundDB) Wipe(ctx context.Context) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var tables []string
 
 		if result := tx.Raw("select table_name from information_schema.tables where table_schema = current_schema() and not table_name ilike '%pg_stat%'").Scan(&tables); result.Error != nil {
@@ -222,13 +227,13 @@ func (s *BloodhoundDB) Wipe() error {
 	})
 }
 
-func (s *BloodhoundDB) RequiresMigration() (bool, error) {
-	return migration.NewMigrator(s.db).RequiresMigration()
+func (s *BloodhoundDB) RequiresMigration(ctx context.Context) (bool, error) {
+	return migration.NewMigrator(s.db.WithContext(ctx)).RequiresMigration()
 }
 
-func (s *BloodhoundDB) Migrate() error {
+func (s *BloodhoundDB) Migrate(ctx context.Context) error {
 	// Run the migrator
-	if err := migration.NewMigrator(s.db).Migrate(); err != nil {
+	if err := migration.NewMigrator(s.db.WithContext(ctx)).Migrate(); err != nil {
 		log.Errorf("Error during SQL database migration phase: %v", err)
 		return err
 	}

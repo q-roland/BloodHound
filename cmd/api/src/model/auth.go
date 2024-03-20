@@ -181,9 +181,7 @@ type AuthTokens []AuthToken
 
 func (s AuthTokens) IsSortable(column string) bool {
 	switch column {
-	case "user_id",
-		"client_id",
-		"name",
+	case "name",
 		"last_access",
 		"created_at",
 		"updated_at",

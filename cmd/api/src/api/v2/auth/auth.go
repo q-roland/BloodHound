@@ -109,7 +109,7 @@ func (s ManagementResource) GetSAMLProvider(response http.ResponseWriter, reques
 
 	if providerID, err := strconv.ParseInt(rawProviderID, 10, 32); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusNotFound, api.ErrorResponseDetailsResourceNotFound, request), response)
-	} else if provider, err := s.db.GetSAMLProvider(int32(providerID)); err != nil {
+	} else if provider, err := s.db.GetSAMLProvider(request.Context(), int32(providerID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		api.WriteBasicResponse(request.Context(), provider, http.StatusOK, response)
@@ -180,11 +180,11 @@ func (s ManagementResource) DeleteSAMLProvider(response http.ResponseWriter, req
 
 	if providerID, err := strconv.ParseInt(rawProviderID, 10, 32); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusNotFound, api.ErrorResponseDetailsResourceNotFound, request), response)
-	} else if identityProvider, err = s.db.GetSAMLProvider(int32(providerID)); err != nil {
+	} else if identityProvider, err = s.db.GetSAMLProvider(request.Context(), int32(providerID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if user, isUser := auth.GetUserFromAuthCtx(requestContext.AuthCtx); isUser && int64(user.SAMLProviderID.Int32) == providerID {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusConflict, "user may not delete their own SAML auth provider", request), response)
-	} else if providerUsers, err := s.db.GetSAMLProviderUsers(identityProvider.ID); err != nil {
+	} else if providerUsers, err := s.db.GetSAMLProviderUsers(request.Context(), identityProvider.ID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if err := s.disassociateUsersFromSAMLProvider(request, providerUsers); err != nil {
 		api.HandleDatabaseError(request, response, err)
@@ -251,7 +251,7 @@ func (s ManagementResource) ListPermissions(response http.ResponseWriter, reques
 		if sqlFilter, err := queryFilters.BuildSQLFilter(); err != nil {
 			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "error building SQL for filter", request), response)
 			return
-		} else if permissions, err = s.db.GetAllPermissions(strings.Join(order, ", "), sqlFilter); err != nil {
+		} else if permissions, err = s.db.GetAllPermissions(request.Context(), strings.Join(order, ", "), sqlFilter); err != nil {
 			api.HandleDatabaseError(request, response, err)
 			return
 		} else {
@@ -268,7 +268,7 @@ func (s ManagementResource) GetPermission(response http.ResponseWriter, request 
 
 	if permissionID, err := strconv.Atoi(rawPermissionID); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if permission, err := s.db.GetPermission(permissionID); err != nil {
+	} else if permission, err := s.db.GetPermission(request.Context(), permissionID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		api.WriteBasicResponse(request.Context(), permission, http.StatusOK, response)
@@ -330,7 +330,7 @@ func (s ManagementResource) ListRoles(response http.ResponseWriter, request *htt
 		if sqlFilter, err := queryFilters.BuildSQLFilter(); err != nil {
 			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "error building SQL for filter", request), response)
 			return
-		} else if roles, err = s.db.GetAllRoles(strings.Join(order, ", "), sqlFilter); err != nil {
+		} else if roles, err = s.db.GetAllRoles(request.Context(), strings.Join(order, ", "), sqlFilter); err != nil {
 			api.HandleDatabaseError(request, response, err)
 		} else {
 			api.WriteBasicResponse(request.Context(), v2.ListRolesResponse{Roles: roles}, http.StatusOK, response)
@@ -346,7 +346,7 @@ func (s ManagementResource) GetRole(response http.ResponseWriter, request *http.
 
 	if roleID, err := strconv.ParseInt(rawRoleID, 10, 32); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if role, err := s.db.GetRole(int32(roleID)); err != nil {
+	} else if role, err := s.db.GetRole(request.Context(), int32(roleID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		api.WriteBasicResponse(request.Context(), role, http.StatusOK, response)
@@ -408,7 +408,7 @@ func (s ManagementResource) ListUsers(response http.ResponseWriter, request *htt
 		if sqlFilter, err := queryFilters.BuildSQLFilter(); err != nil {
 			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "error building SQL for filter", request), response)
 			return
-		} else if users, err = s.db.GetAllUsers(strings.Join(order, ", "), sqlFilter); err != nil {
+		} else if users, err = s.db.GetAllUsers(request.Context(), strings.Join(order, ", "), sqlFilter); err != nil {
 			api.HandleDatabaseError(request, response, err)
 		} else {
 			api.WriteBasicResponse(request.Context(), v2.ListUsersResponse{Users: users}, http.StatusOK, response)
@@ -426,7 +426,7 @@ func (s ManagementResource) CreateUser(response http.ResponseWriter, request *ht
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, err.Error(), request), response)
 	} else if len(createUserRequest.Roles) > 1 {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, ErrorResponseDetailsNumRoles, request), response)
-	} else if roles, err := s.db.GetRoles(createUserRequest.Roles); err != nil {
+	} else if roles, err := s.db.GetRoles(request.Context(), createUserRequest.Roles); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		userTemplate.Roles = roles
@@ -446,7 +446,7 @@ func (s ManagementResource) CreateUser(response http.ResponseWriter, request *ht
 				log.Errorf("Error while attempting to digest secret for user: %v", err)
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 				return
-			} else if passwordExpiration, err := appcfg.GetPasswordExpiration(s.db); err != nil {
+			} else if passwordExpiration, err := appcfg.GetPasswordExpiration(request.Context(), s.db); err != nil {
 				log.Errorf("Error while attempting to fetch password expiration window: %v", err)
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 			} else {
@@ -465,7 +465,7 @@ func (s ManagementResource) CreateUser(response http.ResponseWriter, request *ht
 		if createUserRequest.SAMLProviderID != "" {
 			if samlProviderID, err := serde.ParseInt32(createUserRequest.SAMLProviderID); err != nil {
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, fmt.Sprintf("SAML Provider ID must be a number: %v", err.Error()), request), response)
-			} else if samlProvider, err := s.db.GetSAMLProvider(samlProviderID); err != nil {
+			} else if samlProvider, err := s.db.GetSAMLProvider(request.Context(), samlProviderID); err != nil {
 				log.Errorf("Error while attempting to fetch SAML provider %d: %v", createUserRequest.SAMLProviderID, err)
 				api.HandleDatabaseError(request, response, err)
 			} else {
@@ -512,13 +512,13 @@ func (s ManagementResource) UpdateUser(response http.ResponseWriter, request *ht
 
 	if userID, err := uuid.FromString(rawUserID); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if user, err := s.db.GetUser(userID); err != nil {
+	} else if user, err := s.db.GetUser(request.Context(), userID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if err := api.ReadJSONRequestPayloadLimited(&updateUserRequest, request); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, err.Error(), request), response)
 	} else if len(updateUserRequest.Roles) > 1 {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "a user can only have one role", request), response)
-	} else if roles, err := s.db.GetRoles(updateUserRequest.Roles); err != nil {
+	} else if roles, err := s.db.GetRoles(request.Context(), updateUserRequest.Roles); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		user.Roles = roles
@@ -532,12 +532,12 @@ func (s ManagementResource) UpdateUser(response http.ResponseWriter, request *ht
 			if loggedInUser, _ := auth.GetUserFromAuthCtx(context.AuthCtx); user.ID == loggedInUser.ID {
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseUserSelfDisable, request), response)
 				return
-			} else if userSessions, err := s.db.LookupActiveSessionsByUser(user); err != nil {
+			} else if userSessions, err := s.db.LookupActiveSessionsByUser(request.Context(), user); err != nil {
 				api.HandleDatabaseError(request, response, err)
 				return
 			} else {
 				for _, session := range userSessions {
-					s.db.EndUserSession(session)
+					s.db.EndUserSession(request.Context(), session)
 				}
 			}
 		}
@@ -548,7 +548,7 @@ func (s ManagementResource) UpdateUser(response http.ResponseWriter, request *ht
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, fmt.Sprintf("SAML Provider ID must be a number: %v", err.Error()), request), response)
 			} else if err := s.ensureUserHasNoAuthSecret(request.Context(), user); err != nil {
 				api.HandleDatabaseError(request, response, err)
-			} else if provider, err := s.db.GetSAMLProvider(samlProviderID); err != nil {
+			} else if provider, err := s.db.GetSAMLProvider(request.Context(), samlProviderID); err != nil {
 				api.HandleDatabaseError(request, response, err)
 			} else {
 				// Ensure that the AuthSecret reference is nil and that the SAML provider is set
@@ -576,7 +576,7 @@ func (s ManagementResource) GetUser(response http.ResponseWriter, request *http.
 
 	if userID, err := uuid.FromString(rawUserID); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if user, err := s.db.GetUser(userID); err != nil {
+	} else if user, err := s.db.GetUser(request.Context(), userID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		api.WriteBasicResponse(request.Context(), user, http.StatusOK, response)
@@ -597,7 +597,7 @@ func (s ManagementResource) DeleteUser(response http.ResponseWriter, request *ht
 
 	if userID, err := uuid.FromString(rawUserID); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if user, err = s.db.GetUser(userID); err != nil {
+	} else if user, err = s.db.GetUser(request.Context(), userID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if err := s.db.DeleteUser(request.Context(), user); err != nil {
 		api.HandleDatabaseError(request, response, err)
@@ -641,11 +641,11 @@ func (s ManagementResource) PutUserAuthSecret(response http.ResponseWriter, requ
 	} else if errs := validation.Validate(setUserSecretRequest); errs != nil {
 		msg := strings.Join(utils.Errors(errs).AsStringSlice(), ", ")
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, msg, request), response)
-	} else if targetUser, err := s.db.GetUser(userID); err != nil {
+	} else if targetUser, err := s.db.GetUser(request.Context(), userID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if targetUser.SAMLProviderID.Valid {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "Invalid operation, user is SSO", request), response)
-	} else if passwordExpiration, err := appcfg.GetPasswordExpiration(s.db); err != nil {
+	} else if passwordExpiration, err := appcfg.GetPasswordExpiration(request.Context(), s.db); err != nil {
 		log.Errorf("Error while attempting to fetch password expiration window: %v", err)
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseCodeInternalServerError, request), response)
 	} else if secretDigest, err := s.secretDigester.Digest(setUserSecretRequest.Secret); err != nil {
@@ -676,7 +676,7 @@ func (s ManagementResource) ExpireUserAuthSecret(response http.ResponseWriter, r
 
 	if userID, err := uuid.FromString(rawUserID); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if targetUser, err := s.db.GetUser(userID); err != nil {
+	} else if targetUser, err := s.db.GetUser(request.Context(), userID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if targetUser.SAMLProviderID.Valid {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusConflict, "user has SAML auth enabled", request), response)
@@ -763,7 +763,7 @@ func (s ManagementResource) ListAuthTokens(response http.ResponseWriter, request
 		if sqlFilter, err := queryFilters.BuildSQLFilter(); err != nil {
 			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "error building SQL for filter", request), response)
 			return
-		} else if authTokens, err := s.db.GetAllAuthTokens(strings.Join(order, ", "), sqlFilter); err != nil {
+		} else if authTokens, err := s.db.GetAllAuthTokens(request.Context(), strings.Join(order, ", "), sqlFilter); err != nil {
 			api.HandleDatabaseError(request, response, err)
 		} else {
 			api.WriteBasicResponse(request.Context(), v2.ListTokensResponse{Tokens: authTokens.StripKeys()}, http.StatusOK, response)
@@ -781,7 +781,7 @@ func (s ManagementResource) CreateAuthToken(response http.ResponseWriter, reques
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 	} else if err := api.ReadJSONRequestPayloadLimited(&createUserTokenRequest, request); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponsePayloadUnmarshalError, request), response)
-	} else if user, err := s.db.GetUser(user.ID); err != nil {
+	} else if user, err := s.db.GetUser(request.Context(), user.ID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if err := verifyUserID(&createUserTokenRequest, user, bhCtx, s.authorizer); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusForbidden, err.Error(), request), response)
@@ -820,7 +820,7 @@ func (s ManagementResource) DeleteAuthToken(response http.ResponseWriter, reques
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 	} else if tokenID, err := uuid.FromString(rawTokenID); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if token, err := s.db.GetAuthToken(tokenID); err != nil {
+	} else if token, err := s.db.GetAuthToken(request.Context(), tokenID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if token.UserID.Valid && token.UserID.UUID != user.ID && !s.authorizer.AllowsPermission(bhCtx.AuthCtx, auth.Permissions().AuthManageUsers) {
 		log.Errorf("Bad user ID: %s != %s", token.UserID.UUID.String(), user.ID.String())
@@ -869,7 +869,7 @@ func (s ManagementResource) EnrollMFA(response http.ResponseWriter, request *htt
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
 	} else if err := api.ReadJSONRequestPayloadLimited(&payload, request); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorContentTypeJson.Error(), request), response)
-	} else if user, err := s.db.GetUser(userId); err != nil {
+	} else if user, err := s.db.GetUser(request.Context(), userId); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if user.SAMLProviderID.Valid {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "Invalid operation, user is SSO", request), response)
@@ -909,7 +909,7 @@ func (s ManagementResource) DisenrollMFA(response http.ResponseWriter, request *
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
 	} else if err := api.ReadJSONRequestPayloadLimited(&payload, request); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorContentTypeJson.Error(), request), response)
-	} else if user, err := s.db.GetUser(userId); err != nil {
+	} else if user, err := s.db.GetUser(request.Context(), userId); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		// Default the password to check against to the user from the path param
@@ -955,7 +955,7 @@ func (s ManagementResource) GetMFAActivationStatus(response http.ResponseWriter,
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, v2.ErrorParseParams, request), response)
 	} else if userId, err := uuid.FromString(rawUserId); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if user, err := s.db.GetUser(userId); err != nil {
+	} else if user, err := s.db.GetUser(request.Context(), userId); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		responseBody := MFAStatusResponse{}
@@ -981,7 +981,7 @@ func (s ManagementResource) ActivateMFA(response http.ResponseWriter, request *h
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
 	} else if err := api.ReadJSONRequestPayloadLimited(&payload, request); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorContentTypeJson.Error(), request), response)
-	} else if user, err := s.db.GetUser(userId); err != nil {
+	} else if user, err := s.db.GetUser(request.Context(), userId); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if user.AuthSecret.TOTPSecret == "" {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, ErrorResponseDetailsMFAEnrollmentRequired, request), response)

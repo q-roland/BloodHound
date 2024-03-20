@@ -18,6 +18,7 @@ package integration
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/specterops/bloodhound/dawgs/graph"
@@ -42,6 +43,30 @@ func (s *Context) ToggleFeatureFlag(name string) {
 	require.Nil(s.TestCtrl, s.AdminClient().ToggleFeatureFlag(name))
 }
 
+func (s *Context) SendZipFileIngest(fixture string) {
+	apiClient := s.AdminClient()
+
+	if uploadJob, err := apiClient.CreateFileUploadTask(); err != nil {
+		s.TestCtrl.Fatalf("Failed creating upload job: %v", err)
+	} else {
+		var ingestData = s.FixtureLoader.Get(fixture)
+
+		if err := apiClient.SendZipFileUploadData(ingestData, uploadJob.ID); err != nil {
+			s.TestCtrl.Fatalf("Failed sending ingest for fixture %s: %v", fixture, err)
+		}
+
+		s.WaitForDatapipeIdle(90 * time.Second)
+
+		originalStatusWrapper := s.GetDatapipeStatusWrapper()
+
+		if err := apiClient.CompleteFileUpload(uploadJob.ID); err != nil {
+			s.TestCtrl.Fatalf("Failed completing job %d: %v", uploadJob.ID, err)
+		}
+
+		s.WaitForDatapipeAnalysis(90*time.Second, originalStatusWrapper)
+	}
+}
+
 func (s *Context) SendFileIngest(fixtures []string) {
 	apiClient := s.AdminClient()
 
@@ -54,6 +79,34 @@ func (s *Context) SendFileIngest(fixtures []string) {
 			if err := apiClient.SendFileUploadData(ingestData, uploadJob.ID); err != nil {
 				s.TestCtrl.Fatalf("Failed sending ingest for fixture %s: %v", fixtureName, err)
 			}
+		}
+
+		s.WaitForDatapipeIdle(90 * time.Second)
+
+		originalStatusWrapper := s.GetDatapipeStatusWrapper()
+
+		if err := apiClient.CompleteFileUpload(uploadJob.ID); err != nil {
+			s.TestCtrl.Fatalf("Failed completing job %d: %v", uploadJob.ID, err)
+		}
+
+		s.WaitForDatapipeAnalysis(90*time.Second, originalStatusWrapper)
+	}
+}
+
+func (s *Context) SendInvalidFileIngest(fixture string, expectedError error) {
+	apiClient := s.AdminClient()
+
+	if uploadJob, err := apiClient.CreateFileUploadTask(); err != nil {
+		s.TestCtrl.Fatalf("Failed creating upload job: %v", err)
+	} else {
+
+		jsonInput := s.FixtureLoader.GetReader(fixture)
+		defer jsonInput.Close()
+
+		err := apiClient.SendCompressedFileUploadData(jsonInput, uploadJob.ID)
+
+		if !strings.Contains(err.Error(), expectedError.Error()) {
+			s.TestCtrl.Fatalf("Received wrong error from ingest: %v expected %v", err, expectedError)
 		}
 
 		s.WaitForDatapipeIdle(90 * time.Second)
@@ -140,6 +193,16 @@ func (s *Context) WaitForDatapipeAnalysis(timeout time.Duration, originalWrapper
 type IngestAssertion func(testCtrl test.Controller, tx graph.Transaction)
 
 func (s *Context) AssertIngest(assertion IngestAssertion) {
+	graphDB := integration.OpenGraphDB(s.TestCtrl)
+	defer graphDB.Close(s.ctx)
+
+	require.Nil(s.TestCtrl, graphDB.ReadTransaction(s.ctx, func(tx graph.Transaction) error {
+		assertion(s.TestCtrl, tx)
+		return nil
+	}), "Unexpected database error during reconciliation assertion")
+}
+
+func (s *Context) AssertIngestProperties(assertion IngestAssertion) {
 	graphDB := integration.OpenGraphDB(s.TestCtrl)
 	defer graphDB.Close(s.ctx)
 

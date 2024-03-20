@@ -73,7 +73,6 @@ import DCSync from './DCSync/DCSync';
 import DCFor from './DCFor/DCFor';
 import DelegatedEnrollmentAgent from './DelegatedEnrollmentAgent/DelegatedEnrollmentAgent';
 import DumpSMSAPassword from './DumpSMSAPassword/DumpSMSAPassword';
-import ADCSESC3 from './ADCSESC3/ADCSESC3';
 import Enroll from './Enroll/Enroll';
 import EnrollOnBehalfOf from './EnrollOnBehalfOf/EnrollOnBehalfOf';
 import EnterpriseCAFor from './EnterpriseCAFor/EnterpriseCAFor';
@@ -109,6 +108,7 @@ import WritePKIEnrollmentFlag from './WritePKIEnrollmentFlag/WritePKIEnrollmentF
 import WritePKINameFlag from './WritePKINameFlag/WritePKINameFlag';
 import WriteSPN from './WriteSPN/WriteSPN';
 import ADCSESC1 from './ADCSESC1/ADCSESC1';
+import ADCSESC3 from './ADCSESC3/ADCSESC3';
 import ADCSESC4 from './ADCSESC4/ADCSESC4';
 import ADCSESC6a from './ADCSESC6a/ADCSESC6a';
 import ADCSESC6b from './ADCSESC6b/ADCSESC6b';
@@ -116,6 +116,7 @@ import ADCSESC9a from './ADCSESC9a/ADCSESC9a';
 import ADCSESC9b from './ADCSESC9b/ADCSESC9b';
 import ADCSESC10a from './ADCSESC10a/ADCSESC10a';
 import ADCSESC10b from './ADCSESC10b/ADCSESC10b';
+import ADCSESC13 from './ADCSESC13/ADCSESC13';
 
 export type EdgeInfoProps = {
     edgeName?: string;
@@ -225,6 +226,7 @@ const EdgeInfoComponents = {
     ADCSESC9b: ADCSESC9b,
     ADCSESC10a: ADCSESC10a,
     ADCSESC10b: ADCSESC10b,
+    ADCSESC13: ADCSESC13,
     ManageCA: ManageCA,
     ManageCertificates: ManageCertificates,
     WritePKIEnrollmentFlag: WritePKIEnrollmentFlag,

@@ -26,11 +26,21 @@ const FileValidationStatus: React.FC<{ file: FileForIngest }> = ({ file }) => {
                 <Avatar sx={{ bgcolor: 'red', width: 24, height: 24 }}>
                     <FontAwesomeIcon icon={faTimes} size='xs' color='white' />
                 </Avatar>
-                <div>
+                <Box>
                     {file.errors.map((error, i) => (
-                        <div key={i}>{error}</div>
+                        <Box
+                            key={i}
+                            sx={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                display: '-webkit-box',
+                                WebkitLineClamp: '2',
+                                WebkitBoxOrient: 'vertical',
+                            }}>
+                            {error}
+                        </Box>
                     ))}
-                </div>
+                </Box>
             </Box>
         );
     }
@@ -51,7 +61,7 @@ const FileValidationStatus: React.FC<{ file: FileForIngest }> = ({ file }) => {
                     }}>
                     <FontAwesomeIcon icon={faSync} size='sm' color='grey' />
                 </Box>
-                <div>Uploading...</div>
+                <Box>Uploading...</Box>
             </Box>
         );
     }
@@ -60,7 +70,7 @@ const FileValidationStatus: React.FC<{ file: FileForIngest }> = ({ file }) => {
             <Avatar sx={{ bgcolor: 'green', width: 24, height: 24 }}>
                 <FontAwesomeIcon icon={faCheck} transform='shrink-1' size='xs' color='white' />
             </Avatar>
-            <div>{file.status === FileStatus.READY ? 'Ready' : 'Done'}</div>
+            <Box>{file.status === FileStatus.READY ? 'Ready' : 'Done'}</Box>
         </Box>
     );
 };

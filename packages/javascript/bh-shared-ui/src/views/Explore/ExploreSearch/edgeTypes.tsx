@@ -16,6 +16,13 @@
 
 import { ActiveDirectoryRelationshipKind, AzureRelationshipKind } from '../../../graphSchema';
 
+export type EdgeCheckboxType = {
+    category: string;
+    subcategory: string;
+    edgeType: string;
+    checked: boolean;
+};
+
 export type Category = {
     categoryName: string;
     subcategories: Subcategory[];
@@ -92,12 +99,14 @@ export const AllEdgeTypes: Category[] = [
                     ActiveDirectoryRelationshipKind.GoldenCert,
                     ActiveDirectoryRelationshipKind.ADCSESC1,
                     ActiveDirectoryRelationshipKind.ADCSESC3,
+                    ActiveDirectoryRelationshipKind.ADCSESC4,
                     ActiveDirectoryRelationshipKind.ADCSESC6a,
                     ActiveDirectoryRelationshipKind.ADCSESC6b,
                     ActiveDirectoryRelationshipKind.ADCSESC9a,
                     ActiveDirectoryRelationshipKind.ADCSESC9b,
                     ActiveDirectoryRelationshipKind.ADCSESC10a,
                     ActiveDirectoryRelationshipKind.ADCSESC10b,
+                    ActiveDirectoryRelationshipKind.ADCSESC13,
                 ],
             },
         ],

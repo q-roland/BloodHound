@@ -19,29 +19,25 @@ package v2
 import (
 	"errors"
 	"fmt"
-	"github.com/specterops/bloodhound/mediatypes"
+	"mime"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/specterops/bloodhound/headers"
 	"github.com/specterops/bloodhound/log"
 	"github.com/specterops/bloodhound/src/api"
 	"github.com/specterops/bloodhound/src/auth"
 	"github.com/specterops/bloodhound/src/ctx"
 	"github.com/specterops/bloodhound/src/model"
+	ingestModel "github.com/specterops/bloodhound/src/model/ingest"
 	"github.com/specterops/bloodhound/src/services/fileupload"
 	"github.com/specterops/bloodhound/src/services/ingest"
 )
 
 const FileUploadJobIdPathParameterName = "file_upload_job_id"
-
-var AllowedFileUploadTypes = []string{
-	mediatypes.ApplicationJson.WithCharset("utf-8"),
-	// todo - Add applicationZip once zip support is complete
-	//mediatypes.ApplicationZip.String(),
-}
 
 func (s Resources) ListFileUploadJobs(response http.ResponseWriter, request *http.Request) {
 	var (
@@ -103,7 +99,7 @@ func (s Resources) ListFileUploadJobs(response http.ResponseWriter, request *htt
 			api.WriteErrorResponse(request.Context(), ErrBadQueryParameter(request, model.PaginationQueryParameterSkip, err), response)
 		} else if limit, err := ParseLimitQueryParameter(queryParams, 100); err != nil {
 			api.WriteErrorResponse(request.Context(), ErrBadQueryParameter(request, model.PaginationQueryParameterLimit, err), response)
-		} else if fileUploadJobs, count, err := fileupload.GetAllFileUploadJobs(s.DB, skip, limit, strings.Join(order, ", "), sqlFilter); err != nil {
+		} else if fileUploadJobs, count, err := fileupload.GetAllFileUploadJobs(request.Context(), s.DB, skip, limit, strings.Join(order, ", "), sqlFilter); err != nil {
 			api.HandleDatabaseError(request, response, err)
 		} else {
 			api.WriteResponseWrapperWithPagination(request.Context(), fileUploadJobs, limit, skip, count, http.StatusOK, response)
@@ -113,11 +109,11 @@ func (s Resources) ListFileUploadJobs(response http.ResponseWriter, request *htt
 
 func (s Resources) StartFileUploadJob(response http.ResponseWriter, request *http.Request) {
 	defer log.Measure(log.LevelDebug, "Starting new file upload job")()
-	var reqCtx = ctx.Get(request.Context())
+	reqCtx := ctx.Get(request.Context())
 
 	if user, valid := auth.GetUserFromAuthCtx(reqCtx.AuthCtx); !valid {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusUnauthorized, api.ErrorResponseDetailsAuthenticationInvalid, request), response)
-	} else if fileUploadJob, err := fileupload.StartFileUploadJob(s.DB, user); err != nil {
+	} else if fileUploadJob, err := fileupload.StartFileUploadJob(request.Context(), s.DB, user); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		api.WriteBasicResponse(request.Context(), fileUploadJob, http.StatusCreated, response)
@@ -130,17 +126,23 @@ func (s Resources) ProcessFileUpload(response http.ResponseWriter, request *http
 		fileUploadJobIdString = mux.Vars(request)[FileUploadJobIdPathParameterName]
 	)
 
-	if fileUploadJobID, err := strconv.Atoi(fileUploadJobIdString); err != nil {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
+
+	if !IsValidContentTypeForUpload(request.Header) {
+		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, fmt.Sprintf("Content type must be application/json or application/zip"), request), response)
+	} else if fileUploadJobID, err := strconv.Atoi(fileUploadJobIdString); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if fileUploadJob, err := fileupload.GetFileUploadJobByID(s.DB, int64(fileUploadJobID)); err != nil {
+	} else if fileUploadJob, err := fileupload.GetFileUploadJobByID(request.Context(), s.DB, int64(fileUploadJobID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
-	} else if fileName, err := fileupload.SaveIngestFile(s.Config.TempDirectory(), request.Body); errors.Is(err, fileupload.ErrInvalidJSON) {
+	} else if fileName, fileType, err := fileupload.SaveIngestFile(s.Config.TempDirectory(), request); errors.Is(err, fileupload.ErrInvalidJSON) {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, fmt.Sprintf("Error saving ingest file: %v", err), request), response)
 	} else if err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, fmt.Sprintf("Error saving ingest file: %v", err), request), response)
-	} else if _, err = ingest.CreateIngestTask(s.DB, fileName, requestId, int64(fileUploadJobID)); err != nil {
+	} else if _, err = ingest.CreateIngestTask(request.Context(), s.DB, fileName, fileType, requestId, int64(fileUploadJobID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
-	} else if err = fileupload.TouchFileUploadJobLastIngest(s.DB, fileUploadJob); err != nil {
+	} else if err = fileupload.TouchFileUploadJobLastIngest(request.Context(), s.DB, fileUploadJob); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		response.WriteHeader(http.StatusAccepted)
@@ -150,15 +152,15 @@ func (s Resources) ProcessFileUpload(response http.ResponseWriter, request *http
 func (s Resources) EndFileUploadJob(response http.ResponseWriter, request *http.Request) {
 	defer log.Measure(log.LevelDebug, "Finished file upload job")()
 
-	var fileUploadJobIdString = mux.Vars(request)[FileUploadJobIdPathParameterName]
+	fileUploadJobIdString := mux.Vars(request)[FileUploadJobIdPathParameterName]
 
 	if fileUploadJobID, err := strconv.Atoi(fileUploadJobIdString); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
-	} else if fileUploadJob, err := fileupload.GetFileUploadJobByID(s.DB, int64(fileUploadJobID)); err != nil {
+	} else if fileUploadJob, err := fileupload.GetFileUploadJobByID(request.Context(), s.DB, int64(fileUploadJobID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if fileUploadJob.Status != model.JobStatusRunning {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "job must be in running status to end", request), response)
-	} else if err := fileupload.EndFileUploadJob(s.DB, fileUploadJob); err != nil {
+	} else if err := fileupload.EndFileUploadJob(request.Context(), s.DB, fileUploadJob); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		response.WriteHeader(http.StatusOK)
@@ -166,5 +168,16 @@ func (s Resources) EndFileUploadJob(response http.ResponseWriter, request *http.
 }
 
 func (s Resources) ListAcceptedFileUploadTypes(response http.ResponseWriter, request *http.Request) {
-	api.WriteBasicResponse(request.Context(), AllowedFileUploadTypes, http.StatusOK, response)
+	api.WriteBasicResponse(request.Context(), ingestModel.AllowedFileUploadTypes, http.StatusOK, response)
+}
+
+func IsValidContentTypeForUpload(header http.Header) bool {
+	rawValue := header.Get(headers.ContentType.String())
+	if rawValue == "" {
+		return false
+	} else if parsed, _, err := mime.ParseMediaType(rawValue); err != nil {
+		return false
+	} else {
+		return slices.Contains(ingestModel.AllowedFileUploadTypes, parsed)
+	}
 }
