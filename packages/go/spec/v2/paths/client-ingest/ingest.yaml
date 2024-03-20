@@ -25,7 +25,7 @@ post:
     - Enterprise
   responses:
     202:
-      $ref: './../../responses/success-empty.yaml'
+      $ref: './../../responses/no-content.yaml'
     400:
       $ref: './../../responses/bad-request.yaml'
     401:

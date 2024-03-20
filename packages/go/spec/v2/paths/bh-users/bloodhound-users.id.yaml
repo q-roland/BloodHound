@@ -71,7 +71,7 @@ patch:
           $ref: './../../schemas/api/requests/user.update.yaml'
   responses:
     200:
-      $ref: './../../responses/success-empty.yaml'
+      $ref: './../../responses/no-content.yaml'
     400:
       $ref: './../../responses/bad-request.yaml'
     401:
@@ -95,7 +95,7 @@ delete:
     - Enterprise
   responses:
     200:
-      $ref: './../../responses/success-empty.yaml'
+      $ref: './../../responses/no-content.yaml'
     default:
       $ref: './../../responses/error-response.yaml'
     400:

@@ -16,6 +16,17 @@
 
 parameters:
   - $ref: './../../parameters/header/prefer.yaml'
+  - name: Content-Type
+    description: Content type header, used to specify the type of content being sent by the client.
+    in: header
+    required: true
+    schema:
+      type: string
+      enum:
+        - application/json
+        - application/zip
+        - application/zip-compressed
+        - application/x-zip-compressed
   - name: file_upload_job_id
     description: The ID for the file upload job.
     in: path
@@ -40,7 +51,7 @@ post:
           # TODO: we should make an effort to actually document the schema of the collection files at some point.
   responses:
     202:
-      $ref: './../../responses/success-empty.yaml'
+      $ref: './../../responses/no-content.yaml'
     400:
       $ref: './../../responses/bad-request.yaml'
     401:

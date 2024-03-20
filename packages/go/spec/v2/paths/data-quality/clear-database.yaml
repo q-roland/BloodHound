@@ -1,0 +1,43 @@
+parameters:
+  - $ref: './../../parameters/header/prefer.yaml'
+post:
+  operationId: DeleteBloodHoundDatabase
+  summary: Delete your BloodHound data
+  description:
+    Wipes your Bloodhound data permanently.  Specify the data to delete in the request body.
+    Possible data includes collected graph data, custom high value selectors, file ingest history,
+    and data quality history.
+  tags:
+    - Database
+    - Community
+    - Enterprise
+  requestBody:
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            deleteCollectedGraphData:
+              type: boolean
+            deleteFileIngestHistory:
+              type: boolean
+            deleteDataQualityHistory:
+              type: boolean
+            deleteAssetGroupSelectors:
+              type: array
+              items:
+                type: integer
+  responses:
+    204:
+      $ref: './../../responses/no-content.yaml'
+    400:
+      $ref: './../../responses/bad-request.yaml'
+    401:
+      $ref: './../../responses/unauthorized.yaml'
+    403:
+      $ref: './../../responses/forbidden.yaml'
+    429:
+      $ref: './../../responses/too-many-requests.yaml'
+    500:
+      $ref: './../../responses/internal-server-error.yaml'
+

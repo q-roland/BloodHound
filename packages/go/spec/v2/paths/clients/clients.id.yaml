@@ -105,7 +105,7 @@ delete:
     - Enterprise
   responses:
     200:
-      $ref: './../../responses/success-empty.yaml'
+      $ref: './../../responses/no-content.yaml'
     401:
       $ref: './../../responses/unauthorized.yaml'
     403:

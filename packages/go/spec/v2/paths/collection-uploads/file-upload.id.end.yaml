@@ -33,7 +33,7 @@ post:
     - Enterprise
   responses:
     200:
-      $ref: './../../responses/success-empty.yaml'
+      $ref: './../../responses/no-content.yaml'
     400:
       $ref: './../../responses/bad-request.yaml'
     401:
