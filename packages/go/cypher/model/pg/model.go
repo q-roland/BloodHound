@@ -167,6 +167,14 @@ func (s *AnnotatedVariable) copy() *AnnotatedVariable {
 	}
 }
 
+func (s *AnnotatedVariable) String() (string, bool) {
+	if s != nil {
+		return s.Variable.Symbol, true
+	}
+
+	return "", false
+}
+
 type AnnotatedPropertyLookup struct {
 	model.PropertyLookup
 	Type DataType

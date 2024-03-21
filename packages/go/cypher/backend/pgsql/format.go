@@ -240,206 +240,174 @@ func (s *Emitter) writeWhere(writer io.Writer, whereClause *model.Where) error {
 	return nil
 }
 
-func (s *Emitter) writePatternElements(writer io.Writer, patternElements []*model.PatternElement) error {
-	for idx, patternElement := range patternElements {
-		if nodePattern, isNodePattern := patternElement.AsNodePattern(); isNodePattern {
-			if idx == 0 {
-				if _, err := io.WriteString(writer, pgDriverModel.NodeTable); err != nil {
-					return nil
-				}
+const traversalHeader = `with recursive `
+const traversalTablePrefix = `pathspace_`
+const traversalTableDef = `(next_node_id, depth, is_cycle, path) as (`
 
-				if _, err := io.WriteString(writer, " as "); err != nil {
-					return nil
-				}
+func expressionAsType[T any](expr model.Expression) (T, error) {
+	if typed, isType := expr.(T); !isType {
+		var empty T
+		return empty, fmt.Errorf("expected type %T but received %T", empty, expr)
+	} else {
+		return typed, nil
+	}
+}
 
-				if err := s.WriteExpression(writer, nodePattern.Binding); err != nil {
-					return nil
-				}
+func formatVariableExpression(expr model.Expression, defaultBinding string) (string, error) {
+	if expr == nil {
+		return defaultBinding, nil
+	}
+
+	if variable, err := expressionAsType[*pgModel.AnnotatedVariable](expr); err != nil {
+		return "", err
+	} else {
+		return variable.Symbol, nil
+	}
+}
+
+const (
+	defaultNodeBinding = "n"
+	defaultEdgeBinding = "r"
+)
+
+// ()-[]
+// ()<-[]
+
+func (s *Emitter) startRelationshipPattern(writer io.Writer, idx int, nodeBinding string, nodePattern *model.NodePattern, relationshipBinding string, relationshipPattern *model.RelationshipPattern, where *model.Where) error {
+	var (
+		pathspaceTable = traversalTablePrefix + strconv.Itoa(idx)
+	)
+
+	// Each relationship element should be authored as a recursive CTE
+	if _, err := WriteStrings(writer, traversalHeader, pathspaceTable, traversalTableDef); err != nil {
+		return err
+	}
+
+	// Author the initial condition
+	switch relationshipPattern.Direction {
+	case graph.DirectionOutbound:
+		if _, err := WriteStrings(writer, "select ", relationshipBinding, ".end_id, 0, false, array[", relationshipBinding, ".id] from edge ", relationshipBinding, " "); err != nil {
+			return err
+		}
+
+		if nodePattern.Binding != nil {
+			if _, err := WriteStrings(writer, "join node ", nodeBinding, " on ", nodeBinding, ".id = ", relationshipBinding, ".start_id"); err != nil {
+				return err
+			}
+		}
+
+	case graph.DirectionInbound:
+		if _, err := WriteStrings(writer, "select ", relationshipBinding, ".start_id, 0, false, array[", relationshipBinding, ".id] from edge ", relationshipBinding, " "); err != nil {
+			return err
+		}
+
+		if nodePattern.Binding != nil {
+			if _, err := WriteStrings(writer, "join node ", nodeBinding, " on ", nodeBinding, ".id = ", relationshipBinding, ".end_id"); err != nil {
+				return err
+			}
+		}
+
+	default:
+		return fmt.Errorf("unsupported direction: %s(%d)", relationshipPattern.Direction, relationshipPattern.Direction)
+	}
+
+	return nil
+}
+
+// []->()
+// []-()
+func (s *Emitter) endRelationshipPattern(writer io.Writer, idx int, nodeBinding string, nodePattern *model.NodePattern, relationshipBinding string, relationshipPattern *model.RelationshipPattern, where *model.Where) error {
+	var (
+		// Make sure to use idx-1 since the end of a relationship pattern assumes that the previous index is the
+		// relationship pattern element
+		pathspaceTable = traversalTablePrefix + strconv.Itoa(idx-1)
+	)
+
+	if where != nil {
+		if _, err := WriteStrings(writer, " where true "); err != nil {
+			return err
+		}
+	}
+
+	if _, err := WriteStrings(writer, " union all "); err != nil {
+		return err
+	}
+
+	// Author the recursive portion of the query
+	switch relationshipPattern.Direction {
+	case graph.DirectionOutbound:
+		if _, err := WriteStrings(writer, "select ", relationshipBinding, ".end_id, ", pathspaceTable, ".depth + 1, false, ", pathspaceTable, ".path || ", relationshipBinding, ".id from edge ", relationshipBinding, ", ", pathspaceTable); err != nil {
+			return err
+		}
+
+		if nodePattern.Binding != nil {
+			if _, err := WriteStrings(writer, " join node ", nodeBinding, " on ", nodeBinding, ".id = ", relationshipBinding, ".start_id"); err != nil {
+				return err
+			}
+		}
+
+	case graph.DirectionInbound:
+		if _, err := WriteStrings(writer, "select ", relationshipBinding, ".start_id, ", pathspaceTable, ".depth + 1, false, ", pathspaceTable, ".path || ", relationshipBinding, ".id from edge ", relationshipBinding, ", ", pathspaceTable); err != nil {
+			return err
+		}
+
+		if nodePattern.Binding != nil {
+			if _, err := WriteStrings(writer, " join node ", nodeBinding, " on ", nodeBinding, ".id = ", relationshipBinding, ".end_id"); err != nil {
+				return err
+			}
+		}
+
+	default:
+		return fmt.Errorf("unsupported direction: %s(%d)", relationshipPattern.Direction, relationshipPattern.Direction)
+	}
+
+	if where != nil {
+		if _, err := WriteStrings(writer, " where true "); err != nil {
+			return err
+		}
+	}
+
+	if _, err := WriteStrings(writer, ")"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Emitter) writePatternElements(writer io.Writer, patternElements []*model.PatternElement, where *model.Where) error {
+	for idx := range patternElements {
+		if _, isNodePattern := patternElements[idx].AsNodePattern(); isNodePattern {
+			nodePattern, _ := patternElements[idx].AsNodePattern()
+
+			if nodeBinding, err := formatVariableExpression(nodePattern.Binding, defaultNodeBinding); err != nil {
+				return err
 			} else {
-				previousRelationshipPattern, _ := patternElements[idx-1].AsRelationshipPattern()
-
-				if _, err := WriteStrings(writer, " join ", pgDriverModel.NodeTable, " "); err != nil {
-					return err
-				}
-
-				if err := s.WriteExpression(writer, nodePattern.Binding); err != nil {
-					return err
-				}
-
-				if _, err := WriteStrings(writer, " on "); err != nil {
-					return err
-				}
-
-				switch previousRelationshipPattern.Direction {
-				case graph.DirectionOutbound:
-					if err := s.WriteExpression(writer, nodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousRelationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".end_id"); err != nil {
-						return err
-					}
-
-				case graph.DirectionInbound:
-					if err := s.WriteExpression(writer, nodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousRelationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".start_id"); err != nil {
-						return err
-					}
-
-				default:
-					if err := s.WriteExpression(writer, nodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousRelationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".start_id or "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, nodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousRelationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".end_id "); err != nil {
-						return err
+				if idx > 0 {
+					if relationshipPattern, isRelationshipPattern := patternElements[idx-1].AsRelationshipPattern(); isRelationshipPattern {
+						if relationshipBinding, err := formatVariableExpression(relationshipPattern.Binding, defaultEdgeBinding); err != nil {
+							return err
+						} else if err := s.endRelationshipPattern(writer, idx, nodeBinding, nodePattern, relationshipBinding, relationshipPattern, where); err != nil {
+							return err
+						}
+					} else {
+						// TODO: Subsequent node patterns
 					}
 				}
 			}
 		} else {
-			relationshipPattern, _ := patternElement.AsRelationshipPattern()
+			var (
+				// The assumption is that the cypher parser would never allow something strange like a bare []->() or
+				// a nil relationship pattern so errors are ignored here
+				nodePattern, _         = patternElements[idx-1].AsNodePattern()
+				relationshipPattern, _ = patternElements[idx].AsRelationshipPattern()
+			)
 
-			if idx == 0 {
-				if _, err := io.WriteString(writer, pgDriverModel.EdgeTable); err != nil {
-					return nil
-				}
-
-				if _, err := io.WriteString(writer, " as "); err != nil {
-					return nil
-				}
-
-				if err := s.WriteExpression(writer, relationshipPattern.Binding); err != nil {
-					return nil
-				}
-			} else {
-				previousNodePattern, _ := patternElements[idx-1].AsNodePattern()
-
-				if _, err := WriteStrings(writer, " join ", pgDriverModel.EdgeTable, " "); err != nil {
-					return err
-				}
-
-				if err := s.WriteExpression(writer, relationshipPattern.Binding); err != nil {
-					return err
-				}
-
-				if _, err := WriteStrings(writer, " on "); err != nil {
-					return err
-				}
-
-				switch relationshipPattern.Direction {
-				case graph.DirectionOutbound:
-					if err := s.WriteExpression(writer, relationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".start_id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousNodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id"); err != nil {
-						return err
-					}
-
-				case graph.DirectionInbound:
-					if err := s.WriteExpression(writer, relationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".end_id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousNodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id"); err != nil {
-						return err
-					}
-
-				case graph.DirectionBoth:
-					if err := s.WriteExpression(writer, relationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".start_id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousNodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id or "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, relationshipPattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".end_id = "); err != nil {
-						return err
-					}
-
-					if err := s.WriteExpression(writer, previousNodePattern.Binding); err != nil {
-						return err
-					}
-
-					if _, err := WriteStrings(writer, ".id"); err != nil {
-						return err
-					}
-
-				default:
-					return fmt.Errorf("unsupported pattern direction: %s", relationshipPattern.Direction)
-				}
+			if nodeBinding, err := formatVariableExpression(nodePattern.Binding, defaultNodeBinding); err != nil {
+				return err
+			} else if relationshipBinding, err := formatVariableExpression(relationshipPattern.Binding, defaultEdgeBinding); err != nil {
+				return err
+			} else if err := s.startRelationshipPattern(writer, idx, nodeBinding, nodePattern, relationshipBinding, relationshipPattern, where); err != nil {
+				return err
 			}
 		}
 	}
@@ -455,13 +423,7 @@ func (s *Emitter) writeMatch(writer io.Writer, matchClause *model.Match) error {
 			}
 		}
 
-		if err := s.writePatternElements(writer, pattern.PatternElements); err != nil {
-			return err
-		}
-	}
-
-	if matchClause.Where != nil {
-		if err := s.writeWhere(writer, matchClause.Where); err != nil {
+		if err := s.writePatternElements(writer, pattern.PatternElements, matchClause.Where); err != nil {
 			return err
 		}
 	}
@@ -683,7 +645,7 @@ func (s *Emitter) writeUpdates(writer io.Writer, singlePartQuery *model.SinglePa
 					}
 				}
 
-				if err := s.writePatternElements(writer, pattern.PatternElements); err != nil {
+				if err := s.writePatternElements(writer, pattern.PatternElements, nil); err != nil {
 					return err
 				}
 			}
@@ -851,11 +813,11 @@ func (s *Emitter) writeSinglePartQuery(writer io.Writer, singlePartQuery *model.
 }
 
 func (s *Emitter) writeSubquery(writer io.Writer, subquery *pgModel.Subquery) error {
-	if _, err := io.WriteString(writer, "exists(select * from "); err != nil {
+	if _, err := io.WriteString(writer, "exists(select 1 from "); err != nil {
 		return err
 	}
 
-	if err := s.writePatternElements(writer, subquery.PatternElements); err != nil {
+	if err := s.writePatternElements(writer, subquery.PatternElements, nil); err != nil {
 		return err
 	}
 

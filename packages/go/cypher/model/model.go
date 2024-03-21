@@ -17,6 +17,7 @@
 package model
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -972,6 +973,10 @@ func (s *PartialComparison) copy() *PartialComparison {
 	}
 }
 
+type Symbol interface {
+	String() (string, bool)
+}
+
 type Variable struct {
 	Symbol string
 }
@@ -984,6 +989,14 @@ func NewVariableWithSymbol(symbol string) *Variable {
 	return &Variable{
 		Symbol: symbol,
 	}
+}
+
+func (s *Variable) String() (string, bool) {
+	if s != nil {
+		return s.Symbol, true
+	}
+
+	return "", false
 }
 
 func (s *Variable) copy() *Variable {
@@ -1351,5 +1364,19 @@ func (s *PatternPredicate) copy() *PatternPredicate {
 
 	return &PatternPredicate{
 		PatternElements: Copy(s.PatternElements),
+	}
+}
+
+func ExpressionAs[T any](expr Expression) (T, error) {
+	if expr == nil {
+		var empty T
+		return empty, fmt.Errorf("expression is nil")
+	}
+
+	if typed, isType := expr.(T); !isType {
+		var empty T
+		return empty, fmt.Errorf("expected type %T but received %T", empty, expr)
+	} else {
+		return typed, nil
 	}
 }
