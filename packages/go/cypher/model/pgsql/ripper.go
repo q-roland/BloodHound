@@ -13,7 +13,7 @@ package pgsql
 //				// If this is a back to back node pattern then we need to author a CTE for just this pattern
 //				if nextIdx := patternElementIdx + 1; nextIdx < len(pattern.PatternElements) && pattern.PatternElements[nextIdx].IsNodePattern() {
 //					cte = &CTE{
-//						Node: &NodeSelect{
+//						SyntaxNode: &NodeSelect{
 //							Pattern:  nodePattern,
 //							Criteria: &CriteriaBuilder{},
 //						},

@@ -1,28 +1,13 @@
 package pgsql
 
-import (
-	"github.com/specterops/bloodhound/cypher/model"
-)
+type FormattingLiteral string
 
-type CriteriaBuilder struct {
-	Root  model.Expression
-	Stack []model.Expression
+func (s FormattingLiteral) NodeType() string {
+	return "formatting_literal"
 }
 
-func (s *CriteriaBuilder) Push(expression model.Expression) {
-	switch typedCursor := s.Stack[len(s.Stack)-1].(type) {
-	case model.ExpressionList:
-		typedCursor.Add(expression)
-	}
-
-	switch expression.(type) {
-	case model.ExpressionList:
-		s.Stack = append(s.Stack, expression)
-	}
-}
-
-func (s *CriteriaBuilder) Pop() {
-	s.Stack = s.Stack[:len(s.Stack)-1]
+func (s FormattingLiteral) String() string {
+	return string(s)
 }
 
 type InitialCriteria struct {
@@ -43,14 +28,14 @@ type TableAlias struct {
 	Columns []Identifier
 }
 
-type Node interface {
+type SyntaxNode interface {
 	NodeType() string
 }
 
 // SetExpression
 // Must resolve to one of the following types: Query, Select, SetOperation, Values
 type SetExpression interface {
-	Node
+	SyntaxNode
 }
 
 type Values struct {
@@ -58,7 +43,7 @@ type Values struct {
 }
 
 type Expression interface {
-	Node
+	SyntaxNode
 }
 
 // exists(<query>)
@@ -89,7 +74,8 @@ type Between struct {
 }
 
 type Literal struct {
-	Value any
+	Value    any
+	TypeHint DataType
 }
 
 func (l Literal) NodeType() string {
@@ -102,15 +88,19 @@ type Subquery struct {
 
 // not <expr>
 type UnaryExpression struct {
-	Operator Operator
+	Operator Expression
 	Operand  Expression
+}
+
+func (s UnaryExpression) NodeType() string {
+	return "unary_expression"
 }
 
 // <expr> > <expr>
 // table.column > 12345
 type BinaryExpression struct {
 	LeftOperand  Expression
-	Operator     Operator
+	Operator     Expression
 	RightOperand Expression
 }
 
@@ -123,11 +113,72 @@ type Parenthetical struct {
 	Expression Expression
 }
 
-type JoinType string
+type JoinType int
+
+const (
+	JoinTypeInner JoinType = iota
+	JoinTypeLeftOuter
+	JoinTypeRightOuter
+	JoinTypeFullOuter
+)
+
+type JoinOperator struct {
+	JoinType   JoinType
+	Constraint Expression
+}
+
+type OrderBy struct {
+	Expression Expression
+	Ascending  bool
+}
+
+type WindowFrameUnit int
+
+const (
+	WindowFrameUnitRows WindowFrameUnit = iota
+	WindowFrameUnitRange
+	WindowFrameUnitGroups
+)
+
+type WindowFrameBoundaryType int
+
+const (
+	WindowFrameBoundaryTypeCurrentRow WindowFrameBoundaryType = iota
+	WindowFrameBoundaryTypePreceding
+	WindowFrameBoundaryTypeFollowing
+)
+
+type WindowFrameBoundary struct {
+	BoundaryType    WindowFrameBoundaryType
+	BoundaryLiteral *Literal
+}
+
+type WindowFrame struct {
+	Unit          WindowFrameUnit
+	StartBoundary WindowFrameBoundary
+	EndBoundary   *WindowFrameBoundary
+}
+
+type Window struct {
+	PartitionBy []Expression
+	OrderBy     []OrderBy
+	WindowFrame *WindowFrame
+}
+
+type FunctionCall struct {
+	Distinct   bool
+	Function   Identifier
+	Parameters []Expression
+	Over       *Window
+}
+
+func (s FunctionCall) NodeType() string {
+	return "function_call"
+}
 
 type Join struct {
-	Table     TableReference
-	Condition model.Expression
+	Table        TableReference
+	JoinOperator JoinOperator
 }
 
 func (s *Join) NodeType() string {
@@ -139,6 +190,10 @@ type StringLike interface {
 }
 
 type Identifier string
+
+func (s Identifier) NodeType() string {
+	return "identifier"
+}
 
 func (s Identifier) String() string {
 	return string(s)
@@ -163,7 +218,7 @@ type TableReference struct {
 
 type FromClause struct {
 	Relation TableReference
-	Joins    *[]Join
+	Joins    []Join
 }
 
 type AliasedExpression struct {
@@ -181,8 +236,17 @@ type QualifiedWildcard struct {
 	Qualifier string
 }
 
-type Projection struct {
-	Expression Expression
+type ArrayLiteral struct {
+	Values   []Expression
+	TypeHint DataType
+}
+
+func (s ArrayLiteral) NodeType() string {
+	return "array"
+}
+
+type Projection interface {
+	SyntaxNode
 }
 
 type Select struct {
@@ -206,17 +270,29 @@ type SetOperation struct {
 	Distinct     bool
 }
 
-type CTE struct {
-	Recursive bool
-	Alias     TableAlias
-	Query     Query
+func (s SetOperation) NodeType() string {
+	return "set_operation"
+}
+
+type CommonTableExpression struct {
+	Alias TableAlias
+	Query Query
+}
+
+type CommonTableExpressions struct {
+	Recursive   bool
+	Expressions []CommonTableExpression
 }
 
 type Query struct {
-	CTEs []*CTE
-	Body SetExpression
+	CommonTableExpressions *CommonTableExpressions
+	Body                   SetExpression
 }
 
-func Walk(query *Query, visitor func(node Node)) {
+func (s Query) NodeType() string {
+	return "query"
+}
+
+func Walk(query *Query, visitor func(node SyntaxNode)) {
 
 }
