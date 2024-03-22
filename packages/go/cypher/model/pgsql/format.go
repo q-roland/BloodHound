@@ -203,9 +203,9 @@ func formatSelect(formattedQueryBuilder FormattedQueryBuilder, selectStmt Select
 				formattedQueryBuilder.Write(" ", *fromClause.Relation.Binding)
 			}
 
-			formattedQueryBuilder.Write(" ")
-
 			if len(fromClause.Joins) > 0 {
+				formattedQueryBuilder.Write(" ")
+
 				for idx, join := range fromClause.Joins {
 					if idx > 0 {
 						formattedQueryBuilder.Write(" ")
