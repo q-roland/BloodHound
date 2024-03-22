@@ -40,5 +40,5 @@ func TestFileUploadJobs_IsSortable(t *testing.T) {
 func TestFileUploadJobs_ValidFilters(t *testing.T) {
 	fuj := FileUploadJobs{}
 	columns := fuj.ValidFilters()
-	require.Equal(t, 11, len(columns))
+	require.Equal(t, 13, len(columns))
 }
