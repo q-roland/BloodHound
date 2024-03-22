@@ -42,6 +42,10 @@ type Values struct {
 	Values []Expression
 }
 
+func (v Values) NodeType() string {
+	return "values"
+}
+
 type Expression interface {
 	SyntaxNode
 }
@@ -76,6 +80,12 @@ type Between struct {
 type Literal struct {
 	Value    any
 	TypeHint DataType
+}
+
+func AsLiteral(value any) Literal {
+	return Literal{
+		Value: value,
+	}
 }
 
 func (l Literal) NodeType() string {
@@ -212,8 +222,12 @@ func (c CompoundIdentifier) NodeType() string {
 }
 
 type TableReference struct {
-	Name    Identifier
+	Name    CompoundIdentifier
 	Binding OptionalIdentifier
+}
+
+func (s TableReference) NodeType() string {
+	return "table_reference"
 }
 
 type FromClause struct {
@@ -247,6 +261,49 @@ func (s ArrayLiteral) NodeType() string {
 
 type Projection interface {
 	SyntaxNode
+}
+
+type Insert struct {
+	Table   CompoundIdentifier
+	Columns []Identifier
+	Source  Query
+}
+
+func (s Insert) NodeType() string {
+	return "insert"
+}
+
+type Statement interface {
+	SyntaxNode
+}
+
+// <identifier> = <value>
+type Assignment struct {
+	Identifier Identifier
+	Value      Expression
+}
+
+func (s Assignment) NodeType() string {
+	return "assignment"
+}
+
+type Delete struct {
+	Table TableReference
+	Where Expression
+}
+
+func (s Delete) NodeType() string {
+	return "delete"
+}
+
+type Update struct {
+	Table       TableReference
+	Assignments []Assignment
+	Where       Expression
+}
+
+func (s Update) NodeType() string {
+	return "update"
 }
 
 type Select struct {

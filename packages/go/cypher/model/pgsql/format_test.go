@@ -5,7 +5,88 @@ import (
 	"testing"
 )
 
-func TestFormat_SingleQueries(t *testing.T) {
+func TestFormat_Delete(t *testing.T) {
+	formattedQuery, err := FormatStatement(Delete{
+		Table: TableReference{
+			Name:    CompoundIdentifier{"table"},
+			Binding: AsOptionalIdentifier("t"),
+		},
+		Where: BinaryExpression{
+			LeftOperand:  CompoundIdentifier{"t", "col1"},
+			Operator:     Operator("<"),
+			RightOperand: AsLiteral(4),
+		},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "delete from table t where t.col1 < 4", formattedQuery.Query)
+}
+
+func TestFormat_Update(t *testing.T) {
+	formattedQuery, err := FormatStatement(Update{
+		Table: TableReference{
+			Name:    CompoundIdentifier{"table"},
+			Binding: AsOptionalIdentifier("t"),
+		},
+		Assignments: []Assignment{{
+			Identifier: "col1",
+			Value:      AsLiteral(1),
+		}, {
+			Identifier: "col2",
+			Value:      AsLiteral("12345"),
+		}},
+		Where: BinaryExpression{
+			LeftOperand:  CompoundIdentifier{"t", "col1"},
+			Operator:     Operator("<"),
+			RightOperand: AsLiteral(4),
+		},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "update table t set col1 = 1, col2 = '12345' where t.col1 < 4", formattedQuery.Query)
+}
+
+func TestFormat_Insert(t *testing.T) {
+	formattedQuery, err := FormatStatement(Insert{
+		Table:   CompoundIdentifier{"table"},
+		Columns: []Identifier{"col1", "col2", "col3"},
+		Source: Query{
+			Body: Values{
+				Values: []Expression{AsLiteral("1"), AsLiteral(1), AsLiteral(false)},
+			},
+		},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "insert into table (col1, col2, col3) values ('1', 1, false)", formattedQuery.Query)
+
+	formattedQuery, err = FormatStatement(Insert{
+		Table:   CompoundIdentifier{"table"},
+		Columns: []Identifier{"col1", "col2", "col3"},
+		Source: Query{
+			Body: Select{
+				Projection: []Projection{
+					Wildcard{},
+				},
+				From: []FromClause{{
+					Relation: TableReference{
+						Name: CompoundIdentifier{"table"},
+					},
+				}},
+				Where: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"table", "col1"},
+					Operator:     Operator("="),
+					RightOperand: AsLiteral("1234"),
+				},
+			},
+		},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from table where table.col1 = '1234'", formattedQuery.Query)
+}
+
+func TestFormat_Query(t *testing.T) {
 	query := Query{
 		Body: Select{
 			Distinct: false,
@@ -14,7 +95,7 @@ func TestFormat_SingleQueries(t *testing.T) {
 			},
 			From: []FromClause{{
 				Relation: TableReference{
-					Name:    "table",
+					Name:    CompoundIdentifier{"table"},
 					Binding: AsOptionalIdentifier("t"),
 				},
 			}},
@@ -28,7 +109,7 @@ func TestFormat_SingleQueries(t *testing.T) {
 		},
 	}
 
-	formattedQuery, err := FormatQuery(query)
+	formattedQuery, err := FormatStatement(query)
 	require.Nil(t, err)
 	require.Equal(t, "select * from table t where t.col1 > 1", formattedQuery.Query)
 }
@@ -77,13 +158,13 @@ func TestFormat_CTEs(t *testing.T) {
 
 							From: []FromClause{{
 								Relation: TableReference{
-									Name:    "edge",
+									Name:    CompoundIdentifier{"edge"},
 									Binding: AsOptionalIdentifier("r"),
 								},
 
 								Joins: []Join{{
 									Table: TableReference{
-										Name:    "node",
+										Name:    CompoundIdentifier{"node"},
 										Binding: AsOptionalIdentifier("a"),
 									},
 									JoinOperator: JoinOperator{
@@ -161,11 +242,11 @@ func TestFormat_CTEs(t *testing.T) {
 							},
 							From: []FromClause{{
 								Relation: TableReference{
-									Name: "expansion_1",
+									Name: CompoundIdentifier{"expansion_1"},
 								},
 								Joins: []Join{{
 									Table: TableReference{
-										Name:    "edge",
+										Name:    CompoundIdentifier{"edge"},
 										Binding: AsOptionalIdentifier("r"),
 									},
 									JoinOperator: JoinOperator{
@@ -178,7 +259,7 @@ func TestFormat_CTEs(t *testing.T) {
 									},
 								}, {
 									Table: TableReference{
-										Name:    "node",
+										Name:    CompoundIdentifier{"node"},
 										Binding: AsOptionalIdentifier("b"),
 									},
 									JoinOperator: JoinOperator{
@@ -214,11 +295,11 @@ func TestFormat_CTEs(t *testing.T) {
 			},
 			From: []FromClause{{
 				Relation: TableReference{
-					Name: "expansion_1",
+					Name: CompoundIdentifier{"expansion_1"},
 				},
 				Joins: []Join{{
 					Table: TableReference{
-						Name:    "node",
+						Name:    CompoundIdentifier{"node"},
 						Binding: AsOptionalIdentifier("a"),
 					},
 					JoinOperator: JoinOperator{
@@ -231,7 +312,7 @@ func TestFormat_CTEs(t *testing.T) {
 					},
 				}, {
 					Table: TableReference{
-						Name:    "node",
+						Name:    CompoundIdentifier{"node"},
 						Binding: AsOptionalIdentifier("b"),
 					},
 					JoinOperator: JoinOperator{
@@ -256,7 +337,7 @@ func TestFormat_CTEs(t *testing.T) {
 		},
 	}
 
-	formattedQuery, err := FormatQuery(query)
+	formattedQuery, err := FormatStatement(query)
 	require.Nil(t, err)
 	require.Equal(t, "with recursive expansion_1(root_id, next_id, depth, stop, is_cycle, path) as (select r.start_id, r.end_id, 1, false, r.start_id = r.end_id, array[r.id] from edge r join node a on a.id = r.start_id where a.kind_ids operator(pg_catalog.&&) array[23]::int2[] union all select expansion_1.root_id, r.end_id, expansion_1.depth + 1, b.kind_ids operator(pg_catalog.&&) array[24]::int2[], r.id = any(expansion_1.path), expansion_1.path || r.id from expansion_1 join edge r on r.start_id = expansion_1.next_id join node b on b.id = r.end_id where not expansion_1.is_cycle and not expansion_1.stop) select a.properties, b.properties from expansion_1 join node a on a.id = expansion_1.root_id join node b on b.id = expansion_1.next_id where not expansion_1.is_cycle and expansion_1.stop", formattedQuery.Query)
 }
