@@ -45,32 +45,32 @@ func (s FormattedQueryBuilder) Build() FormattedQuery {
 	}
 }
 
-func formatLiteral(formattedQueryBuilder FormattedQueryBuilder, literal Literal) error {
+func formatLiteral(builder FormattedQueryBuilder, literal Literal) error {
 	switch typedLiteral := literal.Value.(type) {
 	case uint:
-		formattedQueryBuilder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
+		builder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
 	case uint8:
-		formattedQueryBuilder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
+		builder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
 	case uint16:
-		formattedQueryBuilder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
+		builder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
 	case uint32:
-		formattedQueryBuilder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
+		builder.Write(strconv.FormatUint(uint64(typedLiteral), 10))
 	case uint64:
-		formattedQueryBuilder.Write(strconv.FormatUint(typedLiteral, 10))
+		builder.Write(strconv.FormatUint(typedLiteral, 10))
 	case int:
-		formattedQueryBuilder.Write(strconv.FormatInt(int64(typedLiteral), 10))
+		builder.Write(strconv.FormatInt(int64(typedLiteral), 10))
 	case int8:
-		formattedQueryBuilder.Write(strconv.FormatInt(int64(typedLiteral), 10))
+		builder.Write(strconv.FormatInt(int64(typedLiteral), 10))
 	case int16:
-		formattedQueryBuilder.Write(strconv.FormatInt(int64(typedLiteral), 10))
+		builder.Write(strconv.FormatInt(int64(typedLiteral), 10))
 	case int32:
-		formattedQueryBuilder.Write(strconv.FormatInt(int64(typedLiteral), 10))
+		builder.Write(strconv.FormatInt(int64(typedLiteral), 10))
 	case int64:
-		formattedQueryBuilder.Write(strconv.FormatInt(typedLiteral, 10))
+		builder.Write(strconv.FormatInt(typedLiteral, 10))
 	case string:
-		formattedQueryBuilder.Write("'", typedLiteral, "'")
+		builder.Write("'", typedLiteral, "'")
 	case bool:
-		formattedQueryBuilder.Write(strconv.FormatBool(typedLiteral))
+		builder.Write(strconv.FormatBool(typedLiteral))
 	default:
 		return fmt.Errorf("unsupported literal type: %T", literal.Value)
 	}
@@ -78,8 +78,8 @@ func formatLiteral(formattedQueryBuilder FormattedQueryBuilder, literal Literal)
 	return nil
 }
 
-func formatExpression(formattedQueryBuilder FormattedQueryBuilder, rootExpr Expression) error {
-	exprStack := []Expression{
+func formatExpression(builder FormattedQueryBuilder, rootExpr Expression) error {
+	exprStack := []SyntaxNode{
 		rootExpr,
 	}
 
@@ -89,10 +89,10 @@ func formatExpression(formattedQueryBuilder FormattedQueryBuilder, rootExpr Expr
 
 		switch typedNextExpr := nextExpr.(type) {
 		case Wildcard:
-			formattedQueryBuilder.Write("*")
+			builder.Write("*")
 
 		case Literal:
-			if err := formatLiteral(formattedQueryBuilder, typedNextExpr); err != nil {
+			if err := formatLiteral(builder, typedNextExpr); err != nil {
 				return err
 			}
 
@@ -115,10 +115,10 @@ func formatExpression(formattedQueryBuilder FormattedQueryBuilder, rootExpr Expr
 			exprStack = append(exprStack, typedNextExpr.Function)
 
 		case Operator:
-			formattedQueryBuilder.Write(typedNextExpr)
+			builder.Write(typedNextExpr)
 
 		case Identifier:
-			formattedQueryBuilder.Write(typedNextExpr)
+			builder.Write(typedNextExpr)
 
 		case CompoundIdentifier:
 			for idx := len(typedNextExpr) - 1; idx >= 0; idx-- {
@@ -130,7 +130,7 @@ func formatExpression(formattedQueryBuilder FormattedQueryBuilder, rootExpr Expr
 			}
 
 		case FormattingLiteral:
-			formattedQueryBuilder.Write(typedNextExpr)
+			builder.Write(typedNextExpr)
 
 		case UnaryExpression:
 			exprStack = append(exprStack,
@@ -165,7 +165,7 @@ func formatExpression(formattedQueryBuilder FormattedQueryBuilder, rootExpr Expr
 				typedNextExpr.Identifier)
 
 		case ArrayLiteral:
-			formattedQueryBuilder.Write("array[")
+			builder.Write("array[")
 
 			if typedNextExpr.TypeHint != UnsetDataType {
 				exprStack = append(exprStack, FormattingLiteral(typedNextExpr.TypeHint.String()), FormattingLiteral("::"))
@@ -181,6 +181,49 @@ func formatExpression(formattedQueryBuilder FormattedQueryBuilder, rootExpr Expr
 				}
 			}
 
+		case DoUpdate:
+			if typedNextExpr.Where != nil {
+				exprStack = append(exprStack, typedNextExpr.Where)
+				exprStack = append(exprStack, FormattingLiteral(" where "))
+			}
+
+			if len(typedNextExpr.Assignments) > 0 {
+				for idx := len(typedNextExpr.Assignments) - 1; idx >= 0; idx-- {
+					exprStack = append(exprStack, typedNextExpr.Assignments[idx])
+				}
+
+				exprStack = append(exprStack, FormattingLiteral(" set "))
+			}
+
+			exprStack = append(exprStack, FormattingLiteral("do update"))
+
+		case ConflictTarget:
+			if len(typedNextExpr.Columns) > 0 {
+				if len(typedNextExpr.Constraint) > 0 {
+					return fmt.Errorf("conflict target has both columns and an 'on constraint' expression set")
+				}
+
+				exprStack = append(exprStack, FormattingLiteral(")"))
+
+				for idx := len(typedNextExpr.Columns) - 1; idx >= 0; idx-- {
+					exprStack = append(exprStack, typedNextExpr.Columns[idx])
+
+					if idx > 0 {
+						exprStack = append(exprStack, FormattingLiteral(", "))
+					}
+				}
+
+				exprStack = append(exprStack, FormattingLiteral("("))
+			}
+
+			if len(typedNextExpr.Constraint) > 0 {
+				if len(typedNextExpr.Columns) > 0 {
+					return fmt.Errorf("conflict target has both columns and an 'on constraint' expression set")
+				}
+
+				exprStack = append(exprStack, typedNextExpr.Constraint, FormattingLiteral("on constraint "))
+			}
+
 		default:
 			return fmt.Errorf("unsupported expression type: %T", nextExpr)
 		}
@@ -189,39 +232,39 @@ func formatExpression(formattedQueryBuilder FormattedQueryBuilder, rootExpr Expr
 	return nil
 }
 
-func formatSelect(formattedQueryBuilder FormattedQueryBuilder, selectStmt Select) error {
-	formattedQueryBuilder.Write("select ")
+func formatSelect(builder FormattedQueryBuilder, selectStmt Select) error {
+	builder.Write("select ")
 
 	for idx, projection := range selectStmt.Projection {
 		if idx > 0 {
-			formattedQueryBuilder.Write(", ")
+			builder.Write(", ")
 		}
 
-		if err := formatExpression(formattedQueryBuilder, projection); err != nil {
+		if err := formatExpression(builder, projection); err != nil {
 			return err
 		}
 	}
 
-	formattedQueryBuilder.Write(" ")
+	builder.Write(" ")
 
 	if len(selectStmt.From) > 0 {
-		formattedQueryBuilder.Write("from ")
+		builder.Write("from ")
 
 		for idx, fromClause := range selectStmt.From {
 			if idx > 0 {
-				formattedQueryBuilder.Write(", ")
+				builder.Write(", ")
 			}
 
-			if err := formatExpression(formattedQueryBuilder, fromClause.Relation); err != nil {
+			if err := formatExpression(builder, fromClause.Relation); err != nil {
 				return err
 			}
 
 			if len(fromClause.Joins) > 0 {
-				formattedQueryBuilder.Write(" ")
+				builder.Write(" ")
 
 				for idx, join := range fromClause.Joins {
 					if idx > 0 {
-						formattedQueryBuilder.Write(" ")
+						builder.Write(" ")
 					}
 
 					switch join.JoinOperator.JoinType {
@@ -229,27 +272,27 @@ func formatSelect(formattedQueryBuilder FormattedQueryBuilder, selectStmt Select
 						// A bare join keyword is also an alias for an inner join
 
 					case JoinTypeLeftOuter:
-						formattedQueryBuilder.Write("left outer ")
+						builder.Write("left outer ")
 
 					case JoinTypeRightOuter:
-						formattedQueryBuilder.Write("right outer ")
+						builder.Write("right outer ")
 
 					case JoinTypeFullOuter:
-						formattedQueryBuilder.Write("full outer ")
+						builder.Write("full outer ")
 
 					default:
 						return fmt.Errorf("unsupported join type: %d", join.JoinOperator.JoinType)
 					}
 
-					formattedQueryBuilder.Write("join ")
+					builder.Write("join ")
 
-					if err := formatExpression(formattedQueryBuilder, join.Table); err != nil {
+					if err := formatExpression(builder, join.Table); err != nil {
 						return err
 					}
 
-					formattedQueryBuilder.Write(" on ")
+					builder.Write(" on ")
 
-					if err := formatExpression(formattedQueryBuilder, join.JoinOperator.Constraint); err != nil {
+					if err := formatExpression(builder, join.JoinOperator.Constraint); err != nil {
 						return err
 					}
 				}
@@ -258,9 +301,9 @@ func formatSelect(formattedQueryBuilder FormattedQueryBuilder, selectStmt Select
 	}
 
 	if selectStmt.Where != nil {
-		formattedQueryBuilder.Write(" where ")
+		builder.Write(" where ")
 
-		if err := formatExpression(formattedQueryBuilder, selectStmt.Where); err != nil {
+		if err := formatExpression(builder, selectStmt.Where); err != nil {
 			return err
 		}
 	}
@@ -268,116 +311,116 @@ func formatSelect(formattedQueryBuilder FormattedQueryBuilder, selectStmt Select
 	return nil
 }
 
-func formatTableAlias(formattedQueryBuilder FormattedQueryBuilder, tableAlias TableAlias) error {
-	formattedQueryBuilder.Write(tableAlias.Name)
+func formatTableAlias(builder FormattedQueryBuilder, tableAlias TableAlias) error {
+	builder.Write(tableAlias.Name)
 
 	if len(tableAlias.Columns) > 0 {
-		formattedQueryBuilder.Write("(")
+		builder.Write("(")
 
 		for idx, column := range tableAlias.Columns {
 			if idx > 0 {
-				formattedQueryBuilder.Write(", ")
+				builder.Write(", ")
 			}
 
-			if err := formatExpression(formattedQueryBuilder, column); err != nil {
+			if err := formatExpression(builder, column); err != nil {
 				return err
 			}
 		}
 
-		formattedQueryBuilder.Write(")")
+		builder.Write(")")
 	}
 
 	return nil
 }
 
-func formatCommonTableExpressions(formattedQueryBuilder FormattedQueryBuilder, commonTableExpressions CommonTableExpressions) error {
-	formattedQueryBuilder.Write("with ")
+func formatCommonTableExpressions(builder FormattedQueryBuilder, commonTableExpressions With) error {
+	builder.Write("with ")
 
 	if commonTableExpressions.Recursive {
-		formattedQueryBuilder.Write("recursive ")
+		builder.Write("recursive ")
 	}
 
 	for idx, commonTableExpression := range commonTableExpressions.Expressions {
 		if idx > 0 {
-			formattedQueryBuilder.Write(", ")
+			builder.Write(", ")
 		}
 
-		if err := formatTableAlias(formattedQueryBuilder, commonTableExpression.Alias); err != nil {
+		if err := formatTableAlias(builder, commonTableExpression.Alias); err != nil {
 			return err
 		}
 
-		formattedQueryBuilder.Write(" as (")
+		builder.Write(" as (")
 
-		if err := formatSetExpression(formattedQueryBuilder, commonTableExpression.Query); err != nil {
+		if err := formatSetExpression(builder, commonTableExpression.Query); err != nil {
 			return err
 		}
 
-		formattedQueryBuilder.Write(")")
+		builder.Write(")")
 	}
 
 	// Leave a trailing space after formatting CTEs for the subsequent query body
-	formattedQueryBuilder.Write(" ")
+	builder.Write(" ")
 
 	return nil
 }
 
-func formatSetExpression(formattedQueryBuilder FormattedQueryBuilder, expression SetExpression) error {
+func formatSetExpression(builder FormattedQueryBuilder, expression SetExpression) error {
 	switch typedSetExpression := expression.(type) {
 	case Query:
 		if typedSetExpression.CommonTableExpressions != nil {
-			if err := formatCommonTableExpressions(formattedQueryBuilder, *typedSetExpression.CommonTableExpressions); err != nil {
+			if err := formatCommonTableExpressions(builder, *typedSetExpression.CommonTableExpressions); err != nil {
 				return err
 			}
 		}
 
-		return formatSetExpression(formattedQueryBuilder, typedSetExpression.Body)
+		return formatSetExpression(builder, typedSetExpression.Body)
 
 	case Select:
-		return formatSelect(formattedQueryBuilder, typedSetExpression)
+		return formatSelect(builder, typedSetExpression)
 
 	case SetOperation:
 		if typedSetExpression.All && typedSetExpression.Distinct {
 			return fmt.Errorf("set operation for query may not be both ALL and DISTINCT")
 		}
 
-		if err := formatSetExpression(formattedQueryBuilder, typedSetExpression.LeftOperand); err != nil {
+		if err := formatSetExpression(builder, typedSetExpression.LeftOperand); err != nil {
 			return err
 		}
 
-		formattedQueryBuilder.Write(" ")
+		builder.Write(" ")
 
-		if err := formatExpression(formattedQueryBuilder, typedSetExpression.Operator); err != nil {
+		if err := formatExpression(builder, typedSetExpression.Operator); err != nil {
 			return err
 		}
 
-		formattedQueryBuilder.Write(" ")
+		builder.Write(" ")
 
 		if typedSetExpression.All {
-			formattedQueryBuilder.Write("all ")
+			builder.Write("all ")
 		}
 
 		if typedSetExpression.Distinct {
-			formattedQueryBuilder.Write("distinct ")
+			builder.Write("distinct ")
 		}
 
-		if err := formatSetExpression(formattedQueryBuilder, typedSetExpression.RightOperand); err != nil {
+		if err := formatSetExpression(builder, typedSetExpression.RightOperand); err != nil {
 			return err
 		}
 
 	case Values:
-		formattedQueryBuilder.Write("values (")
+		builder.Write("values (")
 
 		for idx, value := range typedSetExpression.Values {
 			if idx > 0 {
-				formattedQueryBuilder.Write(", ")
+				builder.Write(", ")
 			}
 
-			if err := formatExpression(formattedQueryBuilder, value); err != nil {
+			if err := formatExpression(builder, value); err != nil {
 				return err
 			}
 		}
 
-		formattedQueryBuilder.Write(")")
+		builder.Write(")")
 
 	default:
 		return fmt.Errorf("unsupported set expression type %T", expression)
@@ -386,55 +429,156 @@ func formatSetExpression(formattedQueryBuilder FormattedQueryBuilder, expression
 	return nil
 }
 
-func formatInsertStatement(formattedQueryBuilder FormattedQueryBuilder, insert Insert) error {
-	formattedQueryBuilder.Write("insert into ")
+func formatMergeStatement(builder FormattedQueryBuilder, merge Merge) error {
+	builder.Write("merge ")
 
-	if err := formatExpression(formattedQueryBuilder, insert.Table); err != nil {
+	if merge.Into {
+		builder.Write("into ")
+	}
+
+	if err := formatExpression(builder, merge.Table); err != nil {
+		return err
+	}
+
+	builder.Write(" using ")
+
+	if err := formatExpression(builder, merge.Source); err != nil {
+		return err
+	}
+
+	builder.Write(" on ")
+
+	if err := formatExpression(builder, merge.JoinTarget); err != nil {
+		return err
+	}
+
+	builder.Write(" ")
+
+	for idx, mergeAction := range merge.Actions {
+		if idx > 0 {
+			builder.Write(" ")
+		}
+
+		builder.Write("when ")
+
+		switch typedMergeAction := mergeAction.(type) {
+		case MatchedUpdate:
+			builder.Write("matched")
+
+			// Predicate is optional
+			if typedMergeAction.Predicate != nil {
+				builder.Write(" and ")
+
+				if err := formatExpression(builder, typedMergeAction.Predicate); err != nil {
+					return err
+				}
+			}
+
+			builder.Write(" then update set ")
+
+			for idx, assignment := range typedMergeAction.Assignments {
+				if idx > 0 {
+					builder.Write(", ")
+				}
+
+				if err := formatExpression(builder, assignment); err != nil {
+					return err
+				}
+			}
+
+		case MatchedDelete:
+			builder.Write("matched")
+
+			// Predicate is optional
+			if typedMergeAction.Predicate != nil {
+				builder.Write(" and ")
+
+				if err := formatExpression(builder, typedMergeAction.Predicate); err != nil {
+					return err
+				}
+			}
+
+			builder.Write(" then delete")
+
+		case UnmatchedAction:
+			builder.Write("not matched")
+
+			// Predicate is optional
+			if typedMergeAction.Predicate != nil {
+				builder.Write(" and ")
+
+				if err := formatExpression(builder, typedMergeAction.Predicate); err != nil {
+					return err
+				}
+			}
+
+			builder.Write(" then insert (")
+
+			for idx, column := range typedMergeAction.Columns {
+				if idx > 0 {
+					builder.Write(", ")
+				}
+
+				if err := formatExpression(builder, column); err != nil {
+					return err
+				}
+			}
+
+			builder.Write(") ")
+
+			if err := formatExpression(builder, typedMergeAction.Values); err != nil {
+				return err
+			}
+
+		default:
+			return fmt.Errorf("unknown merge action type: %T", mergeAction)
+		}
+	}
+
+	return nil
+}
+
+func formatInsertStatement(builder FormattedQueryBuilder, insert Insert) error {
+	builder.Write("insert into ")
+
+	if err := formatExpression(builder, insert.Table); err != nil {
 		return err
 	}
 
 	if len(insert.Columns) > 0 {
-		formattedQueryBuilder.Write(" (")
+		builder.Write(" (")
 
 		for idx, column := range insert.Columns {
 			if idx > 0 {
-				formattedQueryBuilder.Write(", ")
+				builder.Write(", ")
 			}
 
-			formattedQueryBuilder.Write(column)
+			builder.Write(column)
 		}
 
-		formattedQueryBuilder.Write(")")
+		builder.Write(")")
 	}
 
-	formattedQueryBuilder.Write(" ")
+	builder.Write(" ")
 
-	return formatSetExpression(formattedQueryBuilder, insert.Source)
-}
-
-func formatUpdateStatement(formattedQueryBuilder FormattedQueryBuilder, update Update) error {
-	formattedQueryBuilder.Write("update ")
-
-	if err := formatExpression(formattedQueryBuilder, update.Table); err != nil {
-		return err
-	}
-
-	formattedQueryBuilder.Write(" set ")
-
-	for idx, assignment := range update.Assignments {
-		if idx > 0 {
-			formattedQueryBuilder.Write(", ")
-		}
-
-		if err := formatExpression(formattedQueryBuilder, assignment); err != nil {
+	if insert.Source != nil {
+		if err := formatSetExpression(builder, *insert.Source); err != nil {
 			return err
 		}
 	}
 
-	if update.Where != nil {
-		formattedQueryBuilder.Write(" where ")
+	if insert.OnConflict != nil {
+		builder.Write(" on conflict ")
 
-		if err := formatExpression(formattedQueryBuilder, update.Where); err != nil {
+		if insert.OnConflict.Target != nil {
+			if err := formatExpression(builder, *insert.OnConflict.Target); err != nil {
+				return err
+			}
+
+			builder.Write(" ")
+		}
+
+		if err := formatExpression(builder, insert.OnConflict.Action); err != nil {
 			return err
 		}
 	}
@@ -442,17 +586,47 @@ func formatUpdateStatement(formattedQueryBuilder FormattedQueryBuilder, update U
 	return nil
 }
 
-func formatDeleteStatement(formattedQueryBuilder FormattedQueryBuilder, delete Delete) error {
-	formattedQueryBuilder.Write("delete from ")
+func formatUpdateStatement(builder FormattedQueryBuilder, update Update) error {
+	builder.Write("update ")
 
-	if err := formatExpression(formattedQueryBuilder, delete.Table); err != nil {
+	if err := formatExpression(builder, update.Table); err != nil {
+		return err
+	}
+
+	builder.Write(" set ")
+
+	for idx, assignment := range update.Assignments {
+		if idx > 0 {
+			builder.Write(", ")
+		}
+
+		if err := formatExpression(builder, assignment); err != nil {
+			return err
+		}
+	}
+
+	if update.Where != nil {
+		builder.Write(" where ")
+
+		if err := formatExpression(builder, update.Where); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func formatDeleteStatement(builder FormattedQueryBuilder, delete Delete) error {
+	builder.Write("delete from ")
+
+	if err := formatExpression(builder, delete.Table); err != nil {
 		return err
 	}
 
 	if delete.Where != nil {
-		formattedQueryBuilder.Write(" where ")
+		builder.Write(" where ")
 
-		if err := formatExpression(formattedQueryBuilder, delete.Where); err != nil {
+		if err := formatExpression(builder, delete.Where); err != nil {
 			return err
 		}
 	}
@@ -461,26 +635,31 @@ func formatDeleteStatement(formattedQueryBuilder FormattedQueryBuilder, delete D
 }
 
 func FormatStatement(statement Statement) (FormattedQuery, error) {
-	formattedQueryBuilder := NewFormattedQueryBuilder()
+	builder := NewFormattedQueryBuilder()
 
 	switch typedStatement := statement.(type) {
+	case Merge:
+		if err := formatMergeStatement(builder, typedStatement); err != nil {
+			return FormattedQuery{}, err
+		}
+
 	case Query:
-		if err := formatSetExpression(formattedQueryBuilder, typedStatement); err != nil {
+		if err := formatSetExpression(builder, typedStatement); err != nil {
 			return FormattedQuery{}, err
 		}
 
 	case Insert:
-		if err := formatInsertStatement(formattedQueryBuilder, typedStatement); err != nil {
+		if err := formatInsertStatement(builder, typedStatement); err != nil {
 			return FormattedQuery{}, err
 		}
 
 	case Update:
-		if err := formatUpdateStatement(formattedQueryBuilder, typedStatement); err != nil {
+		if err := formatUpdateStatement(builder, typedStatement); err != nil {
 			return FormattedQuery{}, err
 		}
 
 	case Delete:
-		if err := formatDeleteStatement(formattedQueryBuilder, typedStatement); err != nil {
+		if err := formatDeleteStatement(builder, typedStatement); err != nil {
 			return FormattedQuery{}, err
 		}
 
@@ -488,5 +667,5 @@ func FormatStatement(statement Statement) (FormattedQuery, error) {
 		return FormattedQuery{}, fmt.Errorf("unsupported PgSQL statement type: %T", statement)
 	}
 
-	return formattedQueryBuilder.Build(), nil
+	return builder.Build(), nil
 }
