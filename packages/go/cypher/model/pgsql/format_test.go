@@ -153,11 +153,11 @@ func TestFormat_Insert(t *testing.T) {
 				},
 			},
 		},
-		Returning: []Projection{Identifier("hit_count")},
+		Returning: []Projection{Identifier("id"), Identifier("hit_count")},
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict on constraint other.hash_constraint do update set hit_count = hit_count + 1 where hit_count < 9999 returning hit_count", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict on constraint other.hash_constraint do update set hit_count = hit_count + 1 where hit_count < 9999 returning id, hit_count", formattedQuery.Query)
 
 	formattedQuery, err = FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
@@ -234,7 +234,7 @@ func TestFormat_Query(t *testing.T) {
 }
 
 func TestFormat_Merge(t *testing.T) {
-	query := Merge{
+	formattedQuery, err := FormatStatement(Merge{
 		Into: true,
 		Table: TableReference{
 			Name:    CompoundIdentifier{"table"},
@@ -279,12 +279,29 @@ func TestFormat_Merge(t *testing.T) {
 					},
 				}},
 			},
+			MatchedDelete{
+				Predicate: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"t", "value"},
+					Operator:     Operator("="),
+					RightOperand: CompoundIdentifier{"s", "value"},
+				},
+			},
+			UnmatchedAction{
+				Predicate: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"t", "value"},
+					Operator:     Operator("="),
+					RightOperand: AsLiteral(0),
+				},
+				Columns: []Identifier{"hit_count"},
+				Values: Values{
+					Values: []Expression{AsLiteral(0)},
+				},
+			},
 		},
-	}
+	})
 
-	formattedQuery, err := FormatStatement(query)
 	require.Nil(t, err)
-	require.Equal(t, "merge into table t using source s on t.source_id = s.id when matched and t.value > s.value then update set updated_at = now() when matched and t.value <= s.value then update set value = s.value, t.updated_at = now()", formattedQuery.Query)
+	require.Equal(t, "merge into table t using source s on t.source_id = s.id when matched and t.value > s.value then update set updated_at = now() when matched and t.value <= s.value then update set value = s.value, t.updated_at = now() when matched and t.value = s.value then delete when not matched and t.value = 0 then insert (hit_count) values (0)", formattedQuery.Query)
 }
 
 func TestFormat_CTEs(t *testing.T) {
