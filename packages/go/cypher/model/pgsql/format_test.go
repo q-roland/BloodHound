@@ -50,7 +50,7 @@ func TestFormat_Insert(t *testing.T) {
 	formattedQuery, err := FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
 		Columns: []Identifier{"col1", "col2", "col3"},
-		Source: Query{
+		Source: &Query{
 			Body: Values{
 				Values: []Expression{AsLiteral("1"), AsLiteral(1), AsLiteral(false)},
 			},
@@ -63,18 +63,18 @@ func TestFormat_Insert(t *testing.T) {
 	formattedQuery, err = FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
 		Columns: []Identifier{"col1", "col2", "col3"},
-		Source: Query{
+		Source: &Query{
 			Body: Select{
 				Projection: []Projection{
 					Wildcard{},
 				},
 				From: []FromClause{{
 					Relation: TableReference{
-						Name: CompoundIdentifier{"table"},
+						Name: CompoundIdentifier{"other"},
 					},
 				}},
 				Where: BinaryExpression{
-					LeftOperand:  CompoundIdentifier{"table", "col1"},
+					LeftOperand:  CompoundIdentifier{"other", "col1"},
 					Operator:     Operator("="),
 					RightOperand: AsLiteral("1234"),
 				},
@@ -83,7 +83,99 @@ func TestFormat_Insert(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) select * from table where table.col1 = '1234'", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234'", formattedQuery.Query)
+
+	formattedQuery, err = FormatStatement(Insert{
+		Table:   CompoundIdentifier{"table"},
+		Columns: []Identifier{"col1", "col2", "col3"},
+		Source: &Query{
+			Body: Select{
+				Projection: []Projection{
+					Wildcard{},
+				},
+				From: []FromClause{{
+					Relation: TableReference{
+						Name: CompoundIdentifier{"other"},
+					},
+				}},
+				Where: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"other", "col1"},
+					Operator:     Operator("="),
+					RightOperand: AsLiteral("1234"),
+				},
+			},
+		},
+		OnConflict: &OnConflict{
+			Target: &ConflictTarget{
+				Constraint: CompoundIdentifier{"other.hash_constraint"},
+			},
+			Action: DoUpdate{
+				Assignments: []Assignment{{
+					Identifier: "hit_count",
+					Value: BinaryExpression{
+						LeftOperand:  Identifier("hit_count"),
+						Operator:     Operator("+"),
+						RightOperand: AsLiteral(1),
+					},
+				}},
+				Where: BinaryExpression{
+					LeftOperand:  Identifier("hit_count"),
+					Operator:     Operator("<"),
+					RightOperand: AsLiteral(9999),
+				},
+			},
+		},
+		Returning: []Projection{Identifier("hit_count")},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict on constraint other.hash_constraint do update set hit_count = hit_count + 1 where hit_count < 9999", formattedQuery.Query)
+
+	formattedQuery, err = FormatStatement(Insert{
+		Table:   CompoundIdentifier{"table"},
+		Columns: []Identifier{"col1", "col2", "col3"},
+		Source: &Query{
+			Body: Select{
+				Projection: []Projection{
+					Wildcard{},
+				},
+				From: []FromClause{{
+					Relation: TableReference{
+						Name: CompoundIdentifier{"other"},
+					},
+				}},
+				Where: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"other", "col1"},
+					Operator:     Operator("="),
+					RightOperand: AsLiteral("1234"),
+				},
+			},
+		},
+		OnConflict: &OnConflict{
+			Target: &ConflictTarget{
+				Columns: CompoundIdentifier{"hash"},
+			},
+			Action: DoUpdate{
+				Assignments: []Assignment{{
+					Identifier: "hit_count",
+					Value: BinaryExpression{
+						LeftOperand:  Identifier("hit_count"),
+						Operator:     Operator("+"),
+						RightOperand: AsLiteral(1),
+					},
+				}},
+				Where: BinaryExpression{
+					LeftOperand:  Identifier("hit_count"),
+					Operator:     Operator("<"),
+					RightOperand: AsLiteral(9999),
+				},
+			},
+		},
+		Returning: []Projection{Identifier("hit_count")},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict (hash) do update set hit_count = hit_count + 1 where hit_count < 9999", formattedQuery.Query)
 }
 
 func TestFormat_Query(t *testing.T) {
@@ -114,9 +206,63 @@ func TestFormat_Query(t *testing.T) {
 	require.Equal(t, "select * from table t where t.col1 > 1", formattedQuery.Query)
 }
 
+func TestFormat_Merge(t *testing.T) {
+	query := Merge{
+		Into: true,
+		Table: TableReference{
+			Name:    CompoundIdentifier{"table"},
+			Binding: AsOptionalIdentifier("t"),
+		},
+		Source: TableReference{
+			Name:    CompoundIdentifier{"source"},
+			Binding: AsOptionalIdentifier("s"),
+		},
+		JoinTarget: BinaryExpression{
+			LeftOperand:  CompoundIdentifier{"t", "source_id"},
+			Operator:     Operator("="),
+			RightOperand: CompoundIdentifier{"s", "id"},
+		},
+		Actions: []MergeAction{
+			MatchedUpdate{
+				Predicate: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"t", "value"},
+					Operator:     Operator(">"),
+					RightOperand: CompoundIdentifier{"s", "value"},
+				},
+				Assignments: []Assignment{{
+					Identifier: "updated_at",
+					Value: FunctionCall{
+						Function: "now",
+					},
+				}},
+			},
+			MatchedUpdate{
+				Predicate: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"t", "value"},
+					Operator:     Operator("<="),
+					RightOperand: CompoundIdentifier{"s", "value"},
+				},
+				Assignments: []Assignment{{
+					Identifier: "value",
+					Value:      CompoundIdentifier{"s", "value"},
+				}, {
+					Identifier: "t.updated_at",
+					Value: FunctionCall{
+						Function: "now",
+					},
+				}},
+			},
+		},
+	}
+
+	formattedQuery, err := FormatStatement(query)
+	require.Nil(t, err)
+	require.Equal(t, "merge into table t using source s on t.source_id = s.id when matched and t.value > s.value then update set updated_at = now() when matched and t.value <= s.value then update set value = s.value, t.updated_at = now()", formattedQuery.Query)
+}
+
 func TestFormat_CTEs(t *testing.T) {
 	query := Query{
-		CommonTableExpressions: &CommonTableExpressions{
+		CommonTableExpressions: &With{
 			Recursive: true,
 			Expressions: []CommonTableExpression{{
 				Alias: TableAlias{
