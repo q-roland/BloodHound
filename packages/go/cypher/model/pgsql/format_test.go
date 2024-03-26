@@ -105,6 +105,34 @@ func TestFormat_Insert(t *testing.T) {
 				},
 			},
 		},
+		Returning: []Projection{
+			Identifier("id"),
+		},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' returning id", formattedQuery.Query)
+
+	formattedQuery, err = FormatStatement(Insert{
+		Table:   CompoundIdentifier{"table"},
+		Columns: []Identifier{"col1", "col2", "col3"},
+		Source: &Query{
+			Body: Select{
+				Projection: []Projection{
+					Wildcard{},
+				},
+				From: []FromClause{{
+					Relation: TableReference{
+						Name: CompoundIdentifier{"other"},
+					},
+				}},
+				Where: BinaryExpression{
+					LeftOperand:  CompoundIdentifier{"other", "col1"},
+					Operator:     Operator("="),
+					RightOperand: AsLiteral("1234"),
+				},
+			},
+		},
 		OnConflict: &OnConflict{
 			Target: &ConflictTarget{
 				Constraint: CompoundIdentifier{"other.hash_constraint"},
@@ -129,7 +157,7 @@ func TestFormat_Insert(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict on constraint other.hash_constraint do update set hit_count = hit_count + 1 where hit_count < 9999", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict on constraint other.hash_constraint do update set hit_count = hit_count + 1 where hit_count < 9999 returning hit_count", formattedQuery.Query)
 
 	formattedQuery, err = FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
@@ -171,7 +199,6 @@ func TestFormat_Insert(t *testing.T) {
 				},
 			},
 		},
-		Returning: []Projection{Identifier("hit_count")},
 	})
 
 	require.Nil(t, err)

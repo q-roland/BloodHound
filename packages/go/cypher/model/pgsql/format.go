@@ -583,6 +583,20 @@ func formatInsertStatement(builder FormattedQueryBuilder, insert Insert) error {
 		}
 	}
 
+	if len(insert.Returning) > 0 {
+		builder.Write(" returning ")
+
+		for idx, projection := range insert.Returning {
+			if idx > 0 {
+				builder.Write(", ")
+			}
+
+			if err := formatExpression(builder, projection); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
