@@ -519,8 +519,25 @@ func (s SetOperation) NodeType() string {
 }
 
 type CommonTableExpression struct {
-	Alias TableAlias
-	Query Query
+	Alias        TableAlias
+	Materialized *Materialized
+	Query        Query
+}
+
+type Materialized struct {
+	Materialized bool
+}
+
+func (s Materialized) Expression() Expression {
+	return s
+}
+
+func (s Materialized) SetExpression() SetExpression {
+	return s
+}
+
+func (s Materialized) NodeType() string {
+	return "materialized"
 }
 
 type With struct {

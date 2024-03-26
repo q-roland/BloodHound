@@ -96,6 +96,13 @@ func formatExpression(builder FormattedQueryBuilder, rootExpr Expression) error 
 				return err
 			}
 
+		case Materialized:
+			if typedNextExpr.Materialized {
+				exprStack = append(exprStack, FormattingLiteral("materialized"))
+			} else {
+				exprStack = append(exprStack, FormattingLiteral("not materialized"))
+			}
+
 		case FunctionCall:
 			exprStack = append(exprStack, FormattingLiteral(")"))
 
@@ -362,7 +369,17 @@ func formatCommonTableExpressions(builder FormattedQueryBuilder, commonTableExpr
 			return err
 		}
 
-		builder.Write(" as (")
+		builder.Write(" as ")
+
+		if commonTableExpression.Materialized != nil {
+			if err := formatExpression(builder, *commonTableExpression.Materialized); err != nil {
+				return err
+			}
+
+			builder.Write(" ")
+		}
+
+		builder.Write("(")
 
 		if err := formatSetExpression(builder, commonTableExpression.Query); err != nil {
 			return err
