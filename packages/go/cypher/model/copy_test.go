@@ -118,7 +118,6 @@ func TestCopy(t *testing.T) {
 	})
 	validateCopy(t, &model.Projection{
 		Distinct: true,
-		All:      true,
 	})
 	validateCopy(t, &model.ProjectionItem{})
 	validateCopy(t, &model.PropertyLookup{

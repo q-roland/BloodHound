@@ -72,6 +72,7 @@ type Between struct {
 
 type Literal struct {
 	Value    any
+	Null     bool
 	TypeHint DataType
 }
 
