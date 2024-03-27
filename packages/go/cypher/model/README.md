@@ -10,7 +10,7 @@ This package contains an implementation of a compiler that translates a string o
 
 This document will mainly describe **stage 2** 😀, which is the translation from the intermediate representation of cypher to the intermediate representation of SQL. The document begins with several commonly used examples of graph queries that every Bloodhound user can expect to encounter. After the quick tour of the most salient examples, it will explore the compiler's implementation in more depth.
 
-## nice to know
+## read this first
 
 Now is a good time to point out where the AST definitions live:
 
