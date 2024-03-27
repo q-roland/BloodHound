@@ -13,7 +13,9 @@ This document will mainly describe **stage 2** 😀, which is the translation fr
 ## nice to know
 
 Now is a good time to point out where the AST definitions live:
-The cypher AST nodes are defined in `cypher/model/model.go`.  
+
+The cypher AST nodes are defined in `cypher/model/model.go`.
+
 The SQL AST nodes are defined in `cypher/model/pgsql/model.go`.
 
 Some conventions that this document will use when referring to any AST node:
