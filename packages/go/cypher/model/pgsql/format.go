@@ -164,9 +164,20 @@ func formatExpression(builder FormattedQueryBuilder, rootExpr Expression) error 
 				FormattingLiteral(" "),
 				typedNextExpr.Identifier)
 
-		case ArrayLiteral:
-			builder.Write("array[")
+		case Values:
+			exprStack = append(exprStack, FormattingLiteral(")"))
 
+			for idx := len(typedNextExpr.Values) - 1; idx >= 0; idx-- {
+				exprStack = append(exprStack, typedNextExpr.Values[idx])
+
+				if idx > 0 {
+					exprStack = append(exprStack, FormattingLiteral(", "))
+				}
+			}
+
+			exprStack = append(exprStack, FormattingLiteral("values ("))
+
+		case ArrayLiteral:
 			if typedNextExpr.TypeHint != UnsetDataType {
 				exprStack = append(exprStack, FormattingLiteral(typedNextExpr.TypeHint.String()), FormattingLiteral("::"))
 			}
@@ -180,6 +191,8 @@ func formatExpression(builder FormattedQueryBuilder, rootExpr Expression) error 
 					exprStack = append(exprStack, FormattingLiteral(", "))
 				}
 			}
+
+			exprStack = append(exprStack, FormattingLiteral("array["))
 
 		case DoUpdate:
 			if typedNextExpr.Where != nil {
@@ -408,19 +421,9 @@ func formatSetExpression(builder FormattedQueryBuilder, expression SetExpression
 		}
 
 	case Values:
-		builder.Write("values (")
-
-		for idx, value := range typedSetExpression.Values {
-			if idx > 0 {
-				builder.Write(", ")
-			}
-
-			if err := formatExpression(builder, value); err != nil {
-				return err
-			}
+		if err := formatExpression(builder, typedSetExpression); err != nil {
+			return err
 		}
-
-		builder.Write(")")
 
 	default:
 		return fmt.Errorf("unsupported set expression type %T", expression)
@@ -580,6 +583,20 @@ func formatInsertStatement(builder FormattedQueryBuilder, insert Insert) error {
 
 		if err := formatExpression(builder, insert.OnConflict.Action); err != nil {
 			return err
+		}
+	}
+
+	if len(insert.Returning) > 0 {
+		builder.Write(" returning ")
+
+		for idx, projection := range insert.Returning {
+			if idx > 0 {
+				builder.Write(", ")
+			}
+
+			if err := formatExpression(builder, projection); err != nil {
+				return err
+			}
 		}
 	}
 
