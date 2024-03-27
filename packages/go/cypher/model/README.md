@@ -68,6 +68,11 @@ gets nicely stuffed into the `cypher.Return` struct of the `cypher.SinglePartQue
 
 todo: im thinking maybe we just need a few fleshed out examples that illustrate what happens, and this list seems like a good start? combined with inline comments on the translator functions this could be kinda nice
 
+todo: is it possible to have a 2 column table that contains the mapping from cypher AST nodes -> sql AST nodes? may not be possible if there isn't a 1:1 mapping
+
+todo: there are other pieces of translation like rewriting the cypher that we may want to consider, i.e. moving criteria from the node pattern to a where clause, i.e.:
+match (n {some: criteria}) ----> match (n) where n.some = 'criteria'
+
 ### todo: explain how "where" conditions get translated
 
 ### todo: explain how projections get translated (ie. return clauses)
