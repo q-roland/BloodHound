@@ -2,14 +2,13 @@ package pgsql
 
 import (
 	"github.com/specterops/bloodhound/cypher/frontend"
-	"github.com/specterops/bloodhound/cypher/model"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 var testCases = map[string]string{
 	"match (s) return s":                       "with s as (select * from node s) select * from s",
-	"match (s) where s.name = '1234' return s": "",
+	"match (s) where s.name = '1234' return s": "with s as (select * from node s where s.properties -> 'name' = '1234') select * from s",
 }
 
 func TestTranslate(t *testing.T) {
@@ -29,9 +28,29 @@ func TestTranslate(t *testing.T) {
 
 func TestTranslateWhereClause(t *testing.T) {
 	//regularQuery, err := frontend.ParseCypher(frontend.NewContext(), "match (s) where s.name = 123 and s.other = 'yes' and not s.bool_value return s")
-	regularQuery, err := frontend.ParseCypher(frontend.NewContext(), "match (s) where s.name = s.other + 123 and s.other = 'yes' and s.action = 'yeet' and not s.reject return s")
+	regularQuery, err := frontend.ParseCypher(frontend.NewContext(), "match (s) where s.name = s.other + 1 / s.last and s.value = 1234 and not s.test return s")
 	require.Nil(t, err)
 
-	_, err = ctbe(regularQuery.SingleQuery.SinglePartQuery.ReadingClauses[0].Match.Where.Expressions[0].(*model.Conjunction))
+	sqlAST, err := TranslateCypherExpression(regularQuery.SingleQuery.SinglePartQuery.ReadingClauses[0].Match.Where.Expressions[0])
 	require.Nil(t, err)
+
+	extractedAST, err := extractSingle([]Expression{Identifier("s"), CompoundIdentifier{"s", "properties"}}, sqlAST)
+	require.Nil(t, err)
+	require.NotNil(t, extractedAST)
+
+	sql, err := FormatStatement(Query{
+		Body: Select{
+			Projection: []Projection{Wildcard{}},
+			From: []FromClause{{
+				Relation: TableReference{
+					Name:    CompoundIdentifier{"node"},
+					Binding: AsOptionalIdentifier("s"),
+				},
+			}},
+			Where: sqlAST,
+		},
+	})
+
+	require.Nil(t, err)
+	require.Equal(t, "select * from node s where s.properties -> 'name' = s.properties -> 'other' + 1 / s.properties -> 'last' and s.properties -> 'value' = 1234 and not s.properties -> 'test'", sql.Query)
 }

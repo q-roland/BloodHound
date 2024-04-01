@@ -139,12 +139,18 @@ func formatExpression(builder FormattedQueryBuilder, rootExpr Expression) error 
 		case FormattingLiteral:
 			builder.Write(typedNextExpr)
 
+		case *UnaryExpression:
+			exprStack = append(exprStack, *typedNextExpr)
+
 		case UnaryExpression:
 			exprStack = append(exprStack,
 				typedNextExpr.Operand,
 				FormattingLiteral(" "),
 				typedNextExpr.Operator,
 			)
+
+		case *BinaryExpression:
+			exprStack = append(exprStack, *typedNextExpr)
 
 		case BinaryExpression:
 			// Push the operands and operator onto the stack in reverse order

@@ -1,83 +1,43 @@
 package pgsql
 
 import (
+	"errors"
 	"fmt"
 	"github.com/specterops/bloodhound/cypher/model"
 )
 
-type TranslationCursor[E any] struct {
+type TranslationNode[E any] struct {
 	Expression  E
 	Branches    []E
 	BranchIndex int
+	Tag         any
 }
 
-func (s *TranslationCursor[E]) NumBranchesRemaining() int {
-	return len(s.Branches) - s.BranchIndex
-}
-
-func (s *TranslationCursor[E]) IsFirstVisit() bool {
-	return s.BranchIndex == 0
-}
-
-func (s *TranslationCursor[E]) HasNext() bool {
-	return s.BranchIndex < len(s.Branches)
-}
-
-func (s *TranslationCursor[E]) NextBranch() E {
-	nextBranch := s.Branches[s.BranchIndex]
-	s.BranchIndex += 1
-
-	return nextBranch
-}
-
-func SliceAs[T any, TS []T, F any, FS []F](fs FS) (TS, error) {
-	ts := make(TS, len(fs))
-
-	for idx := 0; idx < len(fs); idx++ {
-		if tTyped, isTType := any(fs[idx]).(T); !isTType {
-			var emptyT T
-			return nil, fmt.Errorf("slice type %T does not convert to %T", fs[idx], emptyT)
-		} else {
-			ts[idx] = tTyped
-		}
-	}
-
-	return ts, nil
-}
-
-func MustSliceAs[T any, TS []T, F any, FS []F](fs FS) TS {
-	if ts, err := SliceAs[T](fs); err != nil {
-		panic(err.Error())
-	} else {
-		return ts
-	}
-}
-
-func SetBranches[E any, T any](cursor *TranslationCursor[E], branches ...T) error {
-	for _, branch := range branches {
-		if eTypedBranch, isEType := any(branch).(E); !isEType {
-			var emptyE E
-			return fmt.Errorf("branch type %T does not convert to %T", branch, emptyE)
-		} else {
-			cursor.Branches = append(cursor.Branches, eTypedBranch)
-		}
-	}
-
-	return nil
-}
-
-func newCypherTranslationCursor(expression model.Expression) (*TranslationCursor[model.Expression], error) {
-	cursor := &TranslationCursor[model.Expression]{
+func newCypherTranslationCursor(expression model.Expression) (*TranslationNode[model.Expression], error) {
+	cursor := &TranslationNode[model.Expression]{
 		Expression: expression,
 	}
 
 	switch typedExpression := expression.(type) {
 	// Types with no AST branches
-	case *model.PropertyLookup, *model.Literal:
+	case *model.PropertyLookup, *model.Literal, model.Operator:
 		return cursor, nil
 
+	case *model.ArithmeticExpression:
+		return &TranslationNode[model.Expression]{
+			Expression: expression,
+			Branches:   append([]model.Expression{typedExpression.Left}, MustSliceAs[model.Expression](typedExpression.Partials)...),
+		}, nil
+
+	case *model.PartialArithmeticExpression:
+		return &TranslationNode[model.Expression]{
+			Expression:  expression,
+			Branches:    []model.Expression{typedExpression.Operator, typedExpression.Right},
+			BranchIndex: 0,
+		}, nil
+
 	case *model.PartialComparison:
-		return &TranslationCursor[model.Expression]{
+		return &TranslationNode[model.Expression]{
 			Expression:  expression,
 			Branches:    []model.Expression{typedExpression.Operator, typedExpression.Right},
 			BranchIndex: 0,
@@ -90,7 +50,7 @@ func newCypherTranslationCursor(expression model.Expression) (*TranslationCursor
 		return cursor, SetBranches(cursor, typedExpression.Expressions...)
 
 	case *model.Comparison:
-		return &TranslationCursor[model.Expression]{
+		return &TranslationNode[model.Expression]{
 			Expression: expression,
 			Branches:   append([]model.Expression{typedExpression.Left}, MustSliceAs[model.Expression](typedExpression.Partials)...),
 		}, nil
@@ -100,94 +60,145 @@ func newCypherTranslationCursor(expression model.Expression) (*TranslationCursor
 	}
 }
 
+func (s *TranslationNode[E]) NumBranchesRemaining() int {
+	return len(s.Branches) - s.BranchIndex
+}
+
+func (s *TranslationNode[E]) IsFirstVisit() bool {
+	return s.BranchIndex == 0
+}
+
+func (s *TranslationNode[E]) HasNext() bool {
+	return s.BranchIndex < len(s.Branches)
+}
+
+func (s *TranslationNode[E]) NextBranch() E {
+	nextBranch := s.Branches[s.BranchIndex]
+	s.BranchIndex += 1
+
+	return nextBranch
+}
+
+func SetBranches[E any, T any](cursor *TranslationNode[E], branches ...T) error {
+	for _, branch := range branches {
+		if eTypedBranch, isEType := any(branch).(E); !isEType {
+			var emptyE E
+			return fmt.Errorf("branch type %T does not convert to %T", branch, emptyE)
+		} else {
+			cursor.Branches = append(cursor.Branches, eTypedBranch)
+		}
+	}
+
+	return nil
+}
+
 func propertyLookupToBinaryExpression(propertyLookup *model.PropertyLookup) (*BinaryExpression, error) {
 	// Property lookups become a binary expression tree of JSON operators
 	if propertyLookupAtom, err := model.ExpressionAs[*model.Variable](propertyLookup.Atom); err != nil {
 		return nil, err
 	} else {
-		var (
-			propertyLookupBE = &BinaryExpression{
-				LeftOperand: Identifier(propertyLookupAtom.Symbol),
-				Operator:    Operator("->"),
+		return &BinaryExpression{
+			LeftOperand:  CompoundIdentifier{Identifier(propertyLookupAtom.Symbol), "properties"},
+			Operator:     Operator("->"),
+			RightOperand: AsLiteral(propertyLookup.Symbols[0]),
+		}, nil
+	}
+}
+
+type SQLBuilder struct {
+	root  Expression
+	stack []Expression
+}
+
+func (s *SQLBuilder) Depth() int {
+	return len(s.stack)
+}
+
+func (s *SQLBuilder) Peek() Expression {
+	return s.stack[len(s.stack)-1]
+}
+
+var (
+	ErrOperatorAlreadyAssigned = errors.New("expression operator already assigned")
+	ErrOperandAlreadyAssigned  = errors.New("expression operand already assigned")
+)
+
+func (s *SQLBuilder) Assign(expression Expression) error {
+	switch assignmentTarget := s.Peek().(type) {
+	case *UnaryExpression:
+		if _, isOperator := expression.(Operator); isOperator {
+			if assignmentTarget.Operator != nil {
+				return ErrOperatorAlreadyAssigned
 			}
 
-			currentBE = propertyLookupBE
-		)
-
-		// TODO: The cypher grammar doesn't support nested property lookups, this should be simplified
-		for idx, nextIdentifier := range propertyLookup.Symbols {
-			if idx+1 == len(propertyLookup.Symbols) {
-				currentBE.RightOperand = Identifier(nextIdentifier)
-			} else {
-				nextBE := &BinaryExpression{
-					LeftOperand:  Identifier(nextIdentifier),
-					Operator:     Operator("->"),
-					RightOperand: nil,
-				}
-
-				currentBE.RightOperand = nextBE
-				currentBE = nextBE
-			}
-		}
-
-		return propertyLookupBE, nil
-	}
-}
-
-func translateOperatorExpression(expression model.Expression) (Operator, error) {
-	if operator, isOperator := expression.(model.Operator); !isOperator {
-		return "", fmt.Errorf("unable to negotiate expression type %T to a cypher operator", expression)
-	} else {
-		return Operator(operator.String()), nil
-	}
-}
-
-func assignOperatorToPrecedingExpression(precedingExpression, assignment Expression) error {
-	switch typedAssignmentTarget := precedingExpression.(type) {
-	case *UnaryExpression:
-		if typedAssignmentTarget.Operand != nil {
-			return fmt.Errorf("preceding unary expression operator is already populated")
-		}
-
-		typedAssignmentTarget.Operand = assignment
-
-	case *BinaryExpression:
-		if typedAssignmentTarget.Operator != nil {
-			return fmt.Errorf("preceding binary expression operator is already populated")
-		}
-
-		typedAssignmentTarget.Operator = assignment
-	}
-
-	return nil
-}
-
-func assignToPrecedingExpression(precedingExpression, assignment Expression) error {
-	switch typedAssignmentTarget := precedingExpression.(type) {
-	case *UnaryExpression:
-		if typedAssignmentTarget.Operand != nil {
-			return fmt.Errorf("preceding unary expression is already populated")
-		}
-
-		typedAssignmentTarget.Operand = assignment
-
-	case *BinaryExpression:
-		if typedAssignmentTarget.LeftOperand == nil {
-			typedAssignmentTarget.LeftOperand = assignment
-		} else if typedAssignmentTarget.RightOperand == nil {
-			typedAssignmentTarget.RightOperand = assignment
+			assignmentTarget.Operator = expression
 		} else {
-			return fmt.Errorf("preceding binary expression is already populated")
+			if assignmentTarget.Operand != nil {
+				return ErrOperandAlreadyAssigned
+			}
+
+			assignmentTarget.Operand = expression
+		}
+
+	case *BinaryExpression:
+		if _, isOperator := expression.(Operator); isOperator {
+			if assignmentTarget.Operator != nil {
+				return ErrOperatorAlreadyAssigned
+			}
+
+			assignmentTarget.Operator = expression
+		} else if assignmentTarget.LeftOperand == nil {
+			assignmentTarget.LeftOperand = expression
+		} else if assignmentTarget.RightOperand == nil {
+			assignmentTarget.RightOperand = expression
+		} else {
+			return ErrOperandAlreadyAssigned
 		}
 	}
 
 	return nil
 }
 
-func ctbe(conjunction model.Expression) (Expression, error) {
+func (s *SQLBuilder) Pop(depth int) {
+	s.stack = s.stack[0 : len(s.stack)-depth]
+}
+
+func (s *SQLBuilder) PopAssign(depth int) error {
+	for currentDepth := 0; currentDepth < depth; currentDepth++ {
+		nextExpression := s.Peek()
+		s.Pop(1)
+
+		if err := s.Assign(nextExpression); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *SQLBuilder) Push(expression Expression) {
+	if s.root == nil {
+		s.root = expression
+	}
+
+	s.stack = append(s.stack, expression)
+}
+
+func (s *SQLBuilder) PushAssign(expression Expression) error {
+	if s.root != nil {
+		if err := s.Assign(expression); err != nil {
+			return err
+		}
+	}
+
+	s.Push(expression)
+	return nil
+}
+
+func TranslateCypherExpression(conjunction model.Expression) (Expression, error) {
 	var (
-		sqlStack    []*TranslationCursor[Expression]
-		cypherStack []*TranslationCursor[model.Expression]
+		sqlBuilder  = &SQLBuilder{}
+		cypherStack []*TranslationNode[model.Expression]
 	)
 
 	if cypherRootCursor, err := newCypherTranslationCursor(conjunction); err != nil {
@@ -200,152 +211,120 @@ func ctbe(conjunction model.Expression) (Expression, error) {
 		nextCypherNode := cypherStack[len(cypherStack)-1]
 
 		switch typedCypherExpression := nextCypherNode.Expression.(type) {
+		case model.Operator:
+			if err := sqlBuilder.Assign(Operator(typedCypherExpression.String())); err != nil {
+				return nil, err
+			}
+
+			// Pop this element from the cyper translation stack
+			cypherStack = cypherStack[0 : len(cypherStack)-1]
+
+		case *model.Negation:
+			if nextCypherNode.IsFirstVisit() {
+				if err := sqlBuilder.PushAssign(&UnaryExpression{
+					Operator: Operator("not"),
+				}); err != nil {
+					return nil, err
+				}
+			}
+
+			if nextCypherNode.HasNext() {
+				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
+					return nil, err
+				} else {
+					cypherStack = append(cypherStack, nextCypherTranslationCursor)
+				}
+			} else {
+				cypherStack = cypherStack[0 : len(cypherStack)-1]
+				sqlBuilder.Pop(1)
+			}
+
 		case *model.Literal:
 			literal := AsLiteral(typedCypherExpression.Value)
 			literal.Null = typedCypherExpression.Null
 
-			if err := assignToPrecedingExpression(sqlStack[len(sqlStack)-1].Expression, literal); err != nil {
+			if err := sqlBuilder.Assign(literal); err != nil {
 				return nil, err
 			}
 
 			// Pop this element from the cyper translation stack
 			cypherStack = cypherStack[0 : len(cypherStack)-1]
-
-		case *model.PartialComparison:
-			if nextCypherNode.IsFirstVisit() {
-				// Look at the previous SQL statement and assign the operator
-				if translatedOperator, err := translateOperatorExpression(nextCypherNode.NextBranch()); err != nil {
-					return nil, err
-				} else if err := assignOperatorToPrecedingExpression(sqlStack[len(sqlStack)-1].Expression, translatedOperator); err != nil {
-					return nil, err
-				}
-			} else if nextCypherNode.HasNext() {
-				// Push the next operand onto the cypher translation stack
-				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
-					return nil, err
-				} else {
-					cypherStack = append(cypherStack, nextCypherTranslationCursor)
-				}
-			} else {
-				cypherStack = cypherStack[0 : len(cypherStack)-1]
-			}
-
-		case *model.Negation:
-			if nextCypherNode.IsFirstVisit() {
-				// If this is the first expression, create a binary expression to begin
-				// translating the expression tree
-				sqlStack = append(sqlStack, &TranslationCursor[Expression]{
-					Expression: &UnaryExpression{
-						Operator: Operator("not"),
-					},
-				})
-
-				// Push the hand operand onto the cypher translation stack
-				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
-					return nil, err
-				} else {
-					cypherStack = append(cypherStack, nextCypherTranslationCursor)
-				}
-			} else {
-				translated := sqlStack[len(sqlStack)-1].Expression
-				sqlStack = sqlStack[0 : len(sqlStack)-1]
-
-				if err := assignToPrecedingExpression(sqlStack[len(sqlStack)-1].Expression, translated); err != nil {
-					return nil, err
-				}
-
-				cypherStack = cypherStack[0 : len(cypherStack)-1]
-			}
 
 		case *model.PropertyLookup:
 			if propertyLookupBE, err := propertyLookupToBinaryExpression(typedCypherExpression); err != nil {
 				return nil, err
-			} else if err := assignToPrecedingExpression(sqlStack[len(sqlStack)-1].Expression, propertyLookupBE); err != nil {
+			} else if err := sqlBuilder.Assign(propertyLookupBE); err != nil {
 				return nil, err
 			}
 
 			// Pop this element from the cyper translation stack
 			cypherStack = cypherStack[0 : len(cypherStack)-1]
 
-		case *model.Comparison:
-			if nextCypherNode.IsFirstVisit() {
-				// If this is the first expression, create a binary expression to begin
-				// translating the expression tree
-				sqlStack = append(sqlStack, &TranslationCursor[Expression]{
-					Expression: &BinaryExpression{},
-				})
+		case *model.PartialComparison, *model.PartialArithmeticExpression:
+			if nextCypherNode.HasNext() {
+				nextBranch := nextCypherNode.NextBranch()
 
-				// Push the left-hand operand onto the cypher translation stack
-				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
-					return nil, err
-				} else {
-					cypherStack = append(cypherStack, nextCypherTranslationCursor)
+				switch nextBranch.(type) {
+				case *model.PartialComparison, *model.PartialArithmeticExpression:
+					// Each partial is represented as a nested binary expression
+					if err := sqlBuilder.PushAssign(&BinaryExpression{}); err != nil {
+						return nil, err
+					}
 				}
-			} else if nextCypherNode.HasNext() {
-				// Push the next operand onto the cypher translation stack
-				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
+
+				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextBranch); err != nil {
 					return nil, err
 				} else {
 					cypherStack = append(cypherStack, nextCypherTranslationCursor)
 				}
 			} else {
-				translated := sqlStack[len(sqlStack)-1].Expression
-				sqlStack = sqlStack[0 : len(sqlStack)-1]
-
-				if err := assignToPrecedingExpression(sqlStack[len(sqlStack)-1].Expression, translated); err != nil {
-					return nil, err
-				}
-
-				// Pop this element from the cyper translation stack
 				cypherStack = cypherStack[0 : len(cypherStack)-1]
 			}
 
-		case *model.Conjunction:
+		case *model.Comparison, *model.ArithmeticExpression:
 			if nextCypherNode.IsFirstVisit() {
-				// If this is the first expression, create a binary expression to begin
-				// translating the expression tree
-				sqlStack = append(sqlStack, &TranslationCursor[Expression]{
-					Expression: &BinaryExpression{
-						Operator: Operator("and"),
-					},
-				})
+				if err := sqlBuilder.PushAssign(&BinaryExpression{}); err != nil {
+					return nil, err
+				}
+			}
 
-				// Push the left-hand operand onto the cypher translation stack
+			if nextCypherNode.HasNext() {
 				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
 					return nil, err
 				} else {
 					cypherStack = append(cypherStack, nextCypherTranslationCursor)
-				}
-			} else if nextCypherNode.HasNext() {
-				// Push the next operand onto the cypher translation stack
-				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
-					return nil, err
-				} else {
-					cypherStack = append(cypherStack, nextCypherTranslationCursor)
-				}
-
-				// If there are remaining conjoined expressions, create and assign the next nested binary expression
-				if nextCypherNode.HasNext() {
-					nextBinaryExpression := &BinaryExpression{
-						Operator: Operator("and"),
-					}
-
-					if err := assignToPrecedingExpression(sqlStack[len(sqlStack)-1].Expression, nextBinaryExpression); err != nil {
-						return nil, err
-					}
-
-					sqlStack = append(sqlStack, &TranslationCursor[Expression]{
-						Expression: nextBinaryExpression,
-					})
 				}
 			} else {
 				// Pop this element from the cyper translation stack
 				cypherStack = cypherStack[0 : len(cypherStack)-1]
 
-				// Pop from the SQL stack all conjoined expressions. The length of the conjoined expressions is
-				// reduced by to 2 for normalizing both for 0 index and for the depth of the nested binary expressions
-				nestedDepth := len(typedCypherExpression.Expressions) - 2
-				sqlStack = sqlStack[0 : len(sqlStack)-nestedDepth]
+				// Pop from the SQL stack all pushed expressions
+				sqlBuilder.Pop(len(nextCypherNode.Branches) - 1)
+			}
+
+		case *model.Conjunction:
+			if nextCypherNode.HasNext() {
+				if nextCypherTranslationCursor, err := newCypherTranslationCursor(nextCypherNode.NextBranch()); err != nil {
+					return nil, err
+				} else {
+					cypherStack = append(cypherStack, nextCypherTranslationCursor)
+				}
+
+				// If we still have more elements to address we need additional binary expressions to represent
+				// the conjunction
+				if nextCypherNode.HasNext() {
+					if err := sqlBuilder.PushAssign(&BinaryExpression{
+						Operator: Operator("and"),
+					}); err != nil {
+						return nil, err
+					}
+				}
+			} else {
+				// Pop this element from the cyper translation stack
+				cypherStack = cypherStack[0 : len(cypherStack)-1]
+
+				// Pop from the SQL stack all pushed expressions
+				sqlBuilder.Pop(len(nextCypherNode.Branches) - 1)
 			}
 
 		default:
@@ -353,61 +332,224 @@ func ctbe(conjunction model.Expression) (Expression, error) {
 		}
 	}
 
-	return sqlStack[0].Expression, nil
+	return sqlBuilder.root, nil
 }
 
-func ConjunctionToBinaryExpression(conjunction *model.Conjunction) (BinaryExpression, error) {
-	var (
-		rootBinaryExpression = &BinaryExpression{}
-		//cypherModelStack     = append([]model.Expression{}, conjunction)
-		//sqlModelStack        = []Expression{rootBinaryExpression}
-	)
+func newSQLTranslationCursor(expression Expression) (*TranslationNode[Expression], error) {
+	switch typedExpression := expression.(type) {
+	case CompoundIdentifier, Operator, Literal:
+		return &TranslationNode[Expression]{
+			Expression: expression,
+		}, nil
 
-	//for len(cypherModelStack) > 0 {
-	//	nextCypherExpression := cypherModelStack[len(cypherModelStack)-1]
-	//	cypherModelStack = cypherModelStack[0 : len(cypherModelStack)-1]
-	//
-	//	switch typedCypherExpression := nextCypherExpression.(type) {
-	//	case *model.Conjunction:
-	//		for _, conjoinedExpression := range typedCypherExpression.Expressions {
-	//			nextExpr := BinaryExpression{}
-	//
-	//			switch typedSQLExpression := sqlModelStack[len(sqlModelStack)-1].(type) {
-	//			case BinaryExpression:
-	//				if typedSQLExpression.LeftOperand == nil {
-	//					typedSQLExpression.LeftOperand = nextExpr
-	//					sqlModelStack = append(sqlModelStack, &nextExpr)
-	//				} else {
-	//					typedSQLExpression.RightOperand = nextExpr
-	//					sqlModelStack = append(sqlModelStack, &nextExpr)
-	//				}
-	//			}
-	//		}
-	//
-	//	case *model.Comparison:
-	//		switch typedSQLExpression := sqlModelStack[len(sqlModelStack)-1].(type) {
-	//		case BinaryExpression:
-	//			if typedSQLExpression.LeftOperand == nil {
-	//				typedSQLExpression.LeftOperand = BinaryExpression{}
-	//			}
-	//		}
-	//
-	//	default:
-	//		return rootBinaryExpression, fmt.Errorf("unknown expression: %T", conjunction.Expressions[0])
-	//	}
-	//}
+	case *UnaryExpression:
+		return &TranslationNode[Expression]{
+			Expression: expression,
+			Branches:   []Expression{typedExpression.Operator, typedExpression.Operand},
+		}, nil
 
-	return *rootBinaryExpression, nil
-}
-
-func TranslateWhereClause(cypherWhere *model.Where) (Expression, error) {
-	switch typedExpression := cypherWhere.Expressions[0].(type) {
-	case *model.Conjunction:
-		return ConjunctionToBinaryExpression(typedExpression)
+	case *BinaryExpression:
+		return &TranslationNode[Expression]{
+			Expression: expression,
+			Branches:   []Expression{typedExpression.LeftOperand, typedExpression.Operator, typedExpression.RightOperand},
+		}, nil
 
 	default:
-		return nil, fmt.Errorf("unknown type: %T", cypherWhere.Expressions[0])
+		return nil, fmt.Errorf("unable to negotiate sql type %T into a translation cursor", expression)
 	}
+}
+
+type ExtractionTag struct {
+	Matched bool
+}
+
+func ExpressionMatches(expression Expression, matchers []Expression) (bool, error) {
+	switch typedExpression := expression.(type) {
+	case Identifier:
+		for _, matcher := range matchers {
+			switch typedMatcher := matcher.(type) {
+			case Identifier:
+				if typedExpression == typedMatcher {
+					return true, nil
+				}
+			}
+		}
+
+	case CompoundIdentifier:
+		for _, matcher := range matchers {
+			switch typedMatcher := matcher.(type) {
+			case CompoundIdentifier:
+				matches := len(typedExpression) == len(typedMatcher)
+
+				if matches {
+					for idx, expressionIdentifier := range typedExpression {
+						if expressionIdentifier != typedMatcher[idx] {
+							matches = false
+							break
+						}
+					}
+
+					if matches {
+						return true, nil
+					}
+				}
+			}
+		}
+	default:
+		return false, fmt.Errorf("unable to match for expression type %T", expression)
+	}
+
+	return false, nil
+}
+
+func extractSingle(extractionTargets []Expression, expression Expression) (Expression, error) {
+	var (
+		stack   []*TranslationNode[Expression]
+		builder = &SQLBuilder{}
+	)
+
+	if cursor, err := newSQLTranslationCursor(expression); err != nil {
+		return nil, err
+	} else {
+		stack = append(stack, cursor)
+	}
+
+	for len(stack) > 0 {
+		nextExpressionNode := stack[len(stack)-1]
+
+		switch typedNextExpression := nextExpressionNode.Expression.(type) {
+		case Literal:
+			if err := builder.Assign(typedNextExpression); err != nil {
+				return nil, err
+			}
+
+			stack = stack[0 : len(stack)-1]
+
+		case Identifier:
+			switch typedTag := nextExpressionNode.Tag.(type) {
+			case *ExtractionTag:
+				if !typedTag.Matched {
+					if matches, err := ExpressionMatches(typedNextExpression, extractionTargets); err != nil {
+						return nil, err
+					} else {
+						typedTag.Matched = matches
+					}
+				}
+			}
+
+			if err := builder.Assign(typedNextExpression); err != nil {
+				return nil, err
+			}
+
+			stack = stack[0 : len(stack)-1]
+
+		case CompoundIdentifier:
+			switch typedTag := nextExpressionNode.Tag.(type) {
+			case *ExtractionTag:
+				if !typedTag.Matched {
+					if matches, err := ExpressionMatches(typedNextExpression, extractionTargets); err != nil {
+						return nil, err
+					} else {
+						typedTag.Matched = matches
+					}
+				}
+			}
+
+			if err := builder.Assign(typedNextExpression.Copy()); err != nil {
+				return nil, err
+			}
+
+			stack = stack[0 : len(stack)-1]
+
+		case Operator:
+			if err := builder.Assign(typedNextExpression); err != nil {
+				return nil, err
+			}
+
+			stack = stack[0 : len(stack)-1]
+
+		case *UnaryExpression:
+			if nextExpressionNode.IsFirstVisit() {
+				// Assign an extraction tag to this node if it doesn't have one set
+				if nextExpressionNode.Tag == nil {
+					nextExpressionNode.Tag = &ExtractionTag{
+						Matched: false,
+					}
+				}
+
+				// Push, don't assign since we need to figure out if this is relevant to our search criteria
+				builder.Push(&UnaryExpression{})
+			}
+
+			if nextExpressionNode.HasNext() {
+				if cursor, err := newSQLTranslationCursor(nextExpressionNode.NextBranch()); err != nil {
+					return nil, err
+				} else {
+					// Inherit the current extraction tag and append to the descent stack
+					cursor.Tag = nextExpressionNode.Tag
+					stack = append(stack, cursor)
+				}
+			} else {
+				stack = stack[0 : len(stack)-1]
+
+				if builder.Depth() > 1 {
+					switch typedTag := nextExpressionNode.Tag.(type) {
+					case *ExtractionTag:
+						if typedTag.Matched {
+							if err := builder.PopAssign(1); err != nil {
+								return nil, err
+							}
+						} else {
+							builder.Pop(1)
+						}
+					}
+				}
+			}
+
+		case *BinaryExpression:
+			if nextExpressionNode.IsFirstVisit() {
+				// Assign an extraction tag to this node if it doesn't have one set
+				if nextExpressionNode.Tag == nil {
+					nextExpressionNode.Tag = &ExtractionTag{
+						Matched: false,
+					}
+				}
+
+				// Push, don't assign since we need to figure out if this is relevant to our search criteria
+				builder.Push(&BinaryExpression{})
+			}
+
+			if nextExpressionNode.HasNext() {
+				if cursor, err := newSQLTranslationCursor(nextExpressionNode.NextBranch()); err != nil {
+					return nil, err
+				} else {
+					// Inherit the current extraction tag and append to the descent stack
+					cursor.Tag = nextExpressionNode.Tag
+					stack = append(stack, cursor)
+				}
+			} else {
+				stack = stack[0 : len(stack)-1]
+
+				if builder.Depth() > 1 {
+					switch typedTag := nextExpressionNode.Tag.(type) {
+					case *ExtractionTag:
+						if typedTag.Matched {
+							if err := builder.PopAssign(1); err != nil {
+								return nil, err
+							}
+						} else {
+							builder.Pop(1)
+						}
+					}
+				}
+			}
+
+		default:
+			return nil, fmt.Errorf("unsupported expression type for binding constraint extraction: %T", nextExpressionNode.Expression)
+		}
+	}
+
+	return builder.root, nil
 }
 
 func translateSinglePartQuery(singlePartQuery *model.SinglePartQuery) (Statement, error) {
@@ -418,6 +560,15 @@ func translateSinglePartQuery(singlePartQuery *model.SinglePartQuery) (Statement
 	if len(singlePartQuery.ReadingClauses) > 0 {
 		if singlePartQuery.ReadingClauses[0].Match != nil {
 			currentMatch := singlePartQuery.ReadingClauses[0].Match
+
+			if currentMatch.Where != nil && len(currentMatch.Where.Expressions) > 0 {
+				// TODO: Refactor the cypher Where AST node out of being an expression list
+				if _, err := TranslateCypherExpression(currentMatch.Where.Expressions[0]); err != nil {
+					return nil, err
+				} else {
+
+				}
+			}
 
 			for _, patternPart := range currentMatch.Pattern {
 				nextCTE := CommonTableExpression{
@@ -451,10 +602,6 @@ func translateSinglePartQuery(singlePartQuery *model.SinglePartQuery) (Statement
 
 						nextCTE.Query.Body = selectStmt
 					}
-				}
-
-				if currentMatch.Where != nil {
-					// ?
 				}
 
 				// Add the CTE to the query

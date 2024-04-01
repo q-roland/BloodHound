@@ -239,6 +239,13 @@ func AsOptionalIdentifier(val Identifier) OptionalIdentifier {
 
 type CompoundIdentifier []Identifier
 
+func (s CompoundIdentifier) Copy() CompoundIdentifier {
+	copyInst := make(CompoundIdentifier, len(s))
+	copy(copyInst, s)
+
+	return copyInst
+}
+
 func (s CompoundIdentifier) Expression() Expression {
 	return s
 }
