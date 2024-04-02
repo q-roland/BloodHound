@@ -38,6 +38,7 @@ func ExpressionMatches(expression Expression, matchers []Expression) (bool, erro
 				}
 			}
 		}
+
 	default:
 		return false, fmt.Errorf("unable to match for expression type %T", expression)
 	}
@@ -45,11 +46,42 @@ func ExpressionMatches(expression Expression, matchers []Expression) (bool, erro
 	return false, nil
 }
 
+type IdentifierAnnotations struct {
+	IdentifierDependencies         map[string]Identifier
+	CompoundIdentifierDependencies map[string]CompoundIdentifier
+}
+
 type Extractor struct {
-	builder *ExpressionBuilder
-	targets []Expression
-	err     error
-	done    bool
+	annotations []*IdentifierAnnotations
+	targets     []Expression
+	err         error
+	done        bool
+}
+
+func (s *Extractor) pushAnnotation() {
+	s.annotations = append(s.annotations, &IdentifierAnnotations{
+		IdentifierDependencies:         map[string]Identifier{},
+		CompoundIdentifierDependencies: map[string]CompoundIdentifier{},
+	})
+}
+
+func (s *Extractor) popAnnotation() *IdentifierAnnotations {
+	annotations := s.annotations[len(s.annotations)-1]
+	s.annotations = s.annotations[0 : len(s.annotations)-1]
+
+	return annotations
+}
+
+func (s *Extractor) trackIdentifierDependency(identifier Identifier) {
+	for _, annotation := range s.annotations {
+		annotation.IdentifierDependencies[identifier.String()] = identifier
+	}
+}
+
+func (s *Extractor) trackCompoundIdentifierDependency(identifier CompoundIdentifier) {
+	for _, annotation := range s.annotations {
+		annotation.CompoundIdentifierDependencies[identifier.String()] = identifier
+	}
 }
 
 func (s *Extractor) setError(err error) {
@@ -58,9 +90,16 @@ func (s *Extractor) setError(err error) {
 }
 
 func (s *Extractor) Enter(expression Expression) {
-	switch expression.(type) {
-	case *BinaryExpression:
-		s.builder.Push(&BinaryExpression{})
+	switch typedExpression := expression.(type) {
+	case Operator, Literal:
+	case Identifier:
+		s.trackIdentifierDependency(typedExpression)
+
+	case CompoundIdentifier:
+		s.trackCompoundIdentifierDependency(typedExpression)
+
+	case *UnaryExpression, *BinaryExpression:
+		s.pushAnnotation()
 
 	default:
 		s.setError(fmt.Errorf("unsupported expression type for binding constraint extraction: %T", expression))
@@ -68,6 +107,10 @@ func (s *Extractor) Enter(expression Expression) {
 }
 
 func (s *Extractor) Exit(expression Expression) {
+	switch expression.(type) {
+	case *BinaryExpression, *UnaryExpression:
+		s.popAnnotation()
+	}
 }
 
 func (s *Extractor) Done() bool {
@@ -80,9 +123,8 @@ func (s *Extractor) Error() error {
 
 func Extract(targets []Expression, expression Expression) (Expression, error) {
 	extractor := &Extractor{
-		builder: &ExpressionBuilder{},
 		targets: targets,
 	}
 
-	return extractor.builder.root, WalkExpression(expression, extractor)
+	return nil, WalkExpression(expression, extractor)
 }

@@ -1,5 +1,7 @@
 package pgsql
 
+import "strings"
+
 type FormattingLiteral string
 
 func (s FormattingLiteral) Expression() Expression {
@@ -238,6 +240,10 @@ func AsOptionalIdentifier(val Identifier) OptionalIdentifier {
 }
 
 type CompoundIdentifier []Identifier
+
+func (s CompoundIdentifier) String() string {
+	return strings.Join(s.Strings(), ".")
+}
 
 func (s CompoundIdentifier) Strings() []string {
 	strCopy := make([]string, len(s))
