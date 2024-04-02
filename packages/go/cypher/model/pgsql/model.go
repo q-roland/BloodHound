@@ -129,7 +129,7 @@ func (s BinaryExpression) Projection() Projection {
 }
 
 func (s BinaryExpression) NodeType() string {
-	return "BinaryExpression"
+	return "binary_expression"
 }
 
 // (<expr>)
@@ -238,6 +238,16 @@ func AsOptionalIdentifier(val Identifier) OptionalIdentifier {
 }
 
 type CompoundIdentifier []Identifier
+
+func (s CompoundIdentifier) Strings() []string {
+	strCopy := make([]string, len(s))
+
+	for idx, identifier := range s {
+		strCopy[idx] = identifier.String()
+	}
+
+	return strCopy
+}
 
 func (s CompoundIdentifier) Copy() CompoundIdentifier {
 	copyInst := make(CompoundIdentifier, len(s))

@@ -1,4 +1,4 @@
-package pgsql
+package format
 
 import (
 	"github.com/stretchr/testify/require"
@@ -19,7 +19,7 @@ func TestFormat_Delete(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "delete from table t where t.col1 < 4", formattedQuery.Query)
+	require.Equal(t, "delete from table t where t.col1 < 4", formattedQuery.Value)
 }
 
 func TestFormat_Update(t *testing.T) {
@@ -43,7 +43,7 @@ func TestFormat_Update(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "update table t set col1 = 1, col2 = '12345' where t.col1 < 4", formattedQuery.Query)
+	require.Equal(t, "update table t set col1 = 1, col2 = '12345' where t.col1 < 4", formattedQuery.Value)
 }
 
 func TestFormat_Insert(t *testing.T) {
@@ -58,7 +58,7 @@ func TestFormat_Insert(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) values ('1', 1, false)", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) values ('1', 1, false)", formattedQuery.Value)
 
 	formattedQuery, err = FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
@@ -83,7 +83,7 @@ func TestFormat_Insert(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234'", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234'", formattedQuery.Value)
 
 	formattedQuery, err = FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
@@ -111,7 +111,7 @@ func TestFormat_Insert(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' returning id", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' returning id", formattedQuery.Value)
 
 	formattedQuery, err = FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
@@ -157,7 +157,7 @@ func TestFormat_Insert(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict on constraint other.hash_constraint do update set hit_count = hit_count + 1 where hit_count < 9999 returning id, hit_count", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict on constraint other.hash_constraint do update set hit_count = hit_count + 1 where hit_count < 9999 returning id, hit_count", formattedQuery.Value)
 
 	formattedQuery, err = FormatStatement(Insert{
 		Table:   CompoundIdentifier{"table"},
@@ -202,7 +202,7 @@ func TestFormat_Insert(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict (hash) do update set hit_count = hit_count + 1 where hit_count < 9999", formattedQuery.Query)
+	require.Equal(t, "insert into table (col1, col2, col3) select * from other where other.col1 = '1234' on conflict (hash) do update set hit_count = hit_count + 1 where hit_count < 9999", formattedQuery.Value)
 }
 
 func TestFormat_Query(t *testing.T) {
@@ -230,7 +230,7 @@ func TestFormat_Query(t *testing.T) {
 
 	formattedQuery, err := FormatStatement(query)
 	require.Nil(t, err)
-	require.Equal(t, "select * from table t where t.col1 > 1", formattedQuery.Query)
+	require.Equal(t, "select * from table t where t.col1 > 1", formattedQuery.Value)
 }
 
 func TestFormat_Merge(t *testing.T) {
@@ -301,7 +301,7 @@ func TestFormat_Merge(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "merge into table t using source s on t.source_id = s.id when matched and t.value > s.value then update set updated_at = now() when matched and t.value <= s.value then update set value = s.value, t.updated_at = now() when matched and t.value = s.value then delete when not matched and t.value = 0 then insert (hit_count) values (0)", formattedQuery.Query)
+	require.Equal(t, "merge into table t using source s on t.source_id = s.id when matched and t.value > s.value then update set updated_at = now() when matched and t.value <= s.value then update set value = s.value, t.updated_at = now() when matched and t.value = s.value then delete when not matched and t.value = 0 then insert (hit_count) values (0)", formattedQuery.Value)
 }
 
 func TestFormat_CTEs(t *testing.T) {
@@ -531,5 +531,5 @@ func TestFormat_CTEs(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	require.Equal(t, "with recursive expansion_1(root_id, next_id, depth, stop, is_cycle, path) as materialized (select r.start_id, r.end_id, 1, false, r.start_id = r.end_id, array[r.id] from edge r join node a on a.id = r.start_id where a.kind_ids operator(pg_catalog.&&) array[23]::int2[] union all select expansion_1.root_id, r.end_id, expansion_1.depth + 1, b.kind_ids operator(pg_catalog.&&) array[24]::int2[], r.id = any(expansion_1.path), expansion_1.path || r.id from expansion_1 join edge r on r.start_id = expansion_1.next_id join node b on b.id = r.end_id where not expansion_1.is_cycle and not expansion_1.stop) select a.properties, b.properties from expansion_1 join node a on a.id = expansion_1.root_id join node b on b.id = expansion_1.next_id where not expansion_1.is_cycle and expansion_1.stop", formattedQuery.Query)
+	require.Equal(t, "with recursive expansion_1(root_id, next_id, depth, stop, is_cycle, path) as materialized (select r.start_id, r.end_id, 1, false, r.start_id = r.end_id, array[r.id] from edge r join node a on a.id = r.start_id where a.kind_ids operator(pg_catalog.&&) array[23]::int2[] union all select expansion_1.root_id, r.end_id, expansion_1.depth + 1, b.kind_ids operator(pg_catalog.&&) array[24]::int2[], r.id = any(expansion_1.path), expansion_1.path || r.id from expansion_1 join edge r on r.start_id = expansion_1.next_id join node b on b.id = r.end_id where not expansion_1.is_cycle and not expansion_1.stop) select a.properties, b.properties from expansion_1 join node a on a.id = expansion_1.root_id join node b on b.id = expansion_1.next_id where not expansion_1.is_cycle and expansion_1.stop", formattedQuery.Value)
 }
