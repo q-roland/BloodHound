@@ -66,7 +66,9 @@ gets nicely stuffed into the `cypher.Return` struct of the `cypher.SinglePartQue
 
 ## todo
 
-todo: im thinking maybe we just need a few fleshed out examples that illustrate what happens, and this list seems like a good start? combined with inline comments on the translator functions this could be kinda nice
+todo: im thinking maybe we just need a few fleshed out examples that illustrate what happens, and include some visualizations of the cypher ast and pg ast? screenshots of the cypher query explainer could also be helpful to explain why some decisions were made, ie. the sql ast extractor component is needed because we are trying to mimic the behavior seen in cypher's query expaliner for complex "where" clauses
+
+combined with inline comments in the code on the translator functions.
 
 todo: is it possible to have a 2 column table that contains the mapping from cypher AST nodes -> sql AST nodes? may not be possible if there isn't a 1:1 mapping
 
@@ -79,4 +81,4 @@ match (n {some: criteria}) ----> match (n) where n.some = 'criteria'
 
 ### todo: explain how kind filters get translated (ie. match (a:kindA) )
 
-### todo: explain how traversal is accomplished with recursive CTEs? maybe.
+### todo: explain how traversal is accomplished with recursive CTEs? especially why CTEs are needed over joins on the edge table
