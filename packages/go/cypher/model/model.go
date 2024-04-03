@@ -1217,7 +1217,6 @@ func (s *Order) AddItem(item *SortItem) {
 
 type Projection struct {
 	Distinct bool
-	All      bool
 	Order    *Order
 	Skip     *Skip
 	Limit    *Limit
@@ -1237,7 +1236,6 @@ func (s *Projection) copy() *Projection {
 
 	return &Projection{
 		Distinct: s.Distinct,
-		All:      s.All,
 		Order:    Copy(s.Order),
 		Skip:     Copy(s.Skip),
 		Limit:    Copy(s.Limit),

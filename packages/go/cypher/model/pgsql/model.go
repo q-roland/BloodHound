@@ -1,5 +1,7 @@
 package pgsql
 
+import "strings"
+
 type FormattingLiteral string
 
 func (s FormattingLiteral) Expression() Expression {
@@ -72,6 +74,7 @@ type Between struct {
 
 type Literal struct {
 	Value    any
+	Null     bool
 	TypeHint DataType
 }
 
@@ -128,7 +131,7 @@ func (s BinaryExpression) Projection() Projection {
 }
 
 func (s BinaryExpression) NodeType() string {
-	return "BinaryExpression"
+	return "binary_expression"
 }
 
 // (<expr>)
@@ -237,6 +240,27 @@ func AsOptionalIdentifier(val Identifier) OptionalIdentifier {
 }
 
 type CompoundIdentifier []Identifier
+
+func (s CompoundIdentifier) String() string {
+	return strings.Join(s.Strings(), ".")
+}
+
+func (s CompoundIdentifier) Strings() []string {
+	strCopy := make([]string, len(s))
+
+	for idx, identifier := range s {
+		strCopy[idx] = identifier.String()
+	}
+
+	return strCopy
+}
+
+func (s CompoundIdentifier) Copy() CompoundIdentifier {
+	copyInst := make(CompoundIdentifier, len(s))
+	copy(copyInst, s)
+
+	return copyInst
+}
 
 func (s CompoundIdentifier) Expression() Expression {
 	return s
@@ -519,8 +543,25 @@ func (s SetOperation) NodeType() string {
 }
 
 type CommonTableExpression struct {
-	Alias TableAlias
-	Query Query
+	Alias        TableAlias
+	Materialized *Materialized
+	Query        Query
+}
+
+type Materialized struct {
+	Materialized bool
+}
+
+func (s Materialized) Expression() Expression {
+	return s
+}
+
+func (s Materialized) SetExpression() SetExpression {
+	return s
+}
+
+func (s Materialized) NodeType() string {
+	return "materialized"
 }
 
 type With struct {
