@@ -114,6 +114,12 @@ func (s UnaryExpression) NodeType() string {
 	return "unary_expression"
 }
 
+type LiteralNodeValue struct {
+	Value    any
+	Null     bool
+	TypeHint DataType
+}
+
 // <expr> > <expr>
 // table.column > 12345
 type BinaryExpression struct {

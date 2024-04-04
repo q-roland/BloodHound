@@ -1,6 +1,10 @@
 package pgsql
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
 
 type ExtractionTag struct {
 	Matched bool
@@ -46,41 +50,44 @@ func ExpressionMatches(expression Expression, matchers []Expression) (bool, erro
 	return false, nil
 }
 
-type IdentifierAnnotations struct {
-	IdentifierDependencies         map[string]Identifier
-	CompoundIdentifierDependencies map[string]CompoundIdentifier
+type Dependencies struct {
+	Identifiers map[string]struct{}
+}
+
+func (s *Dependencies) Key() string {
+	depSlice := make([]string, 0, len(s.Identifiers))
+
+	for key := range s.Identifiers {
+		depSlice = append(depSlice, key)
+	}
+
+	slices.Sort(depSlice)
+	return strings.Join(depSlice, "")
 }
 
 type Extractor struct {
-	annotations []*IdentifierAnnotations
-	targets     []Expression
-	err         error
-	done        bool
+	annotations     []*Dependencies
+	expressionTrees *Builder
+	err             error
+	done            bool
 }
 
 func (s *Extractor) pushAnnotation() {
-	s.annotations = append(s.annotations, &IdentifierAnnotations{
-		IdentifierDependencies:         map[string]Identifier{},
-		CompoundIdentifierDependencies: map[string]CompoundIdentifier{},
+	s.annotations = append(s.annotations, &Dependencies{
+		Identifiers: map[string]struct{}{},
 	})
 }
 
-func (s *Extractor) popAnnotation() *IdentifierAnnotations {
+func (s *Extractor) popAnnotation() *Dependencies {
 	annotations := s.annotations[len(s.annotations)-1]
 	s.annotations = s.annotations[0 : len(s.annotations)-1]
 
 	return annotations
 }
 
-func (s *Extractor) trackIdentifierDependency(identifier Identifier) {
+func (s *Extractor) trackIdentifierDependency(identifier StringLike) {
 	for _, annotation := range s.annotations {
-		annotation.IdentifierDependencies[identifier.String()] = identifier
-	}
-}
-
-func (s *Extractor) trackCompoundIdentifierDependency(identifier CompoundIdentifier) {
-	for _, annotation := range s.annotations {
-		annotation.CompoundIdentifierDependencies[identifier.String()] = identifier
+		annotation.Identifiers[identifier.String()] = struct{}{}
 	}
 }
 
@@ -96,7 +103,7 @@ func (s *Extractor) Enter(expression Expression) {
 		s.trackIdentifierDependency(typedExpression)
 
 	case CompoundIdentifier:
-		s.trackCompoundIdentifierDependency(typedExpression)
+		s.trackIdentifierDependency(typedExpression)
 
 	case *UnaryExpression, *BinaryExpression:
 		s.pushAnnotation()
@@ -106,10 +113,49 @@ func (s *Extractor) Enter(expression Expression) {
 	}
 }
 
+type Builder struct {
+	trees map[string]*ExpressionBuilder
+}
+
+func (s *Builder) AppendUnaryExpression(expression *UnaryExpression, dependencies *Dependencies) error {
+	var (
+		depKey        = dependencies.Key()
+		tree, hasTree = s.trees[depKey]
+	)
+
+	if !hasTree {
+		tree = &ExpressionBuilder{}
+		s.trees[depKey] = tree
+	}
+
+	return tree.PushAssign(expression)
+}
+
+func (s *Builder) AppendBinaryExpression(expression *BinaryExpression, dependencies *Dependencies) error {
+	var (
+		depKey        = dependencies.Key()
+		tree, hasTree = s.trees[depKey]
+	)
+
+	if !hasTree {
+		tree = &ExpressionBuilder{}
+		s.trees[depKey] = tree
+	}
+
+	return tree.PushAssign(expression)
+}
+
 func (s *Extractor) Exit(expression Expression) {
-	switch expression.(type) {
-	case *BinaryExpression, *UnaryExpression:
-		s.popAnnotation()
+	switch typedExpression := expression.(type) {
+	case *BinaryExpression:
+		if err := s.expressionTrees.AppendBinaryExpression(typedExpression, s.popAnnotation()); err != nil {
+			s.setError(err)
+		}
+
+	case *UnaryExpression:
+		if err := s.expressionTrees.AppendUnaryExpression(typedExpression, s.popAnnotation()); err != nil {
+			s.setError(err)
+		}
 	}
 }
 
@@ -123,7 +169,9 @@ func (s *Extractor) Error() error {
 
 func Extract(targets []Expression, expression Expression) (Expression, error) {
 	extractor := &Extractor{
-		targets: targets,
+		expressionTrees: &Builder{
+			trees: map[string]*ExpressionBuilder{},
+		},
 	}
 
 	return nil, WalkExpression(expression, extractor)
