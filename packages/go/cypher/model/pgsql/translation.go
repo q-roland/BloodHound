@@ -6,13 +6,13 @@ import (
 )
 
 // TODO: Try to refactor this to a walk vistior
-func TranslateCypherExpression(conjunction model.Expression) (Expression, error) {
+func TranslateCypherExpression(expression model.Expression) (Expression, error) {
 	var (
 		sqlBuilder  = &ExpressionBuilder{}
 		cypherStack []*WalkCursor[model.Expression]
 	)
 
-	if cypherRootCursor, err := newCypherTranslationCursor(conjunction); err != nil {
+	if cypherRootCursor, err := newCypherTranslationCursor(expression); err != nil {
 		return nil, err
 	} else {
 		cypherStack = append(cypherStack, cypherRootCursor)

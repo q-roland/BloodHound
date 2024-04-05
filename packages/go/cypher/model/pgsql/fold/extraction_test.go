@@ -1,38 +1,27 @@
-package pgsql_test
+package fold_test
 
 import (
 	"github.com/specterops/bloodhound/cypher/frontend"
 	"github.com/specterops/bloodhound/cypher/model/pgsql"
+	"github.com/specterops/bloodhound/cypher/model/pgsql/fold"
 	"github.com/specterops/bloodhound/cypher/model/pgsql/format"
 	"github.com/specterops/bloodhound/cypher/model/pgsql/visualization"
 	"github.com/stretchr/testify/require"
-	"os"
 	"testing"
 )
 
-func mustWritePUML(t *testing.T, expression pgsql.Expression) {
-	graph, err := visualization.SQLToDigraph(expression)
-	require.Nil(t, err)
-
-	fout, err := os.OpenFile("/home/zinic/graph.puml", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
-	defer fout.Close()
-
-	require.Nil(t, err)
-	require.Nil(t, visualization.GraphToPUMLDigraph(graph, fout))
-}
-
 func TestExtract(t *testing.T) {
-	regularQuery, err := frontend.ParseCypher(frontend.NewContext(), "match (s), (e) where s.name = 'test' and e.name = 'test' return s, e")
+	regularQuery, err := frontend.ParseCypher(frontend.NewContext(), "match (s), (e) where s.name = 'test' and e.name = 'test' and s.value = '1234' return s, e")
 	require.Nil(t, err)
 
 	sqlAST, err := pgsql.TranslateCypherExpression(regularQuery.SingleQuery.SinglePartQuery.ReadingClauses[0].Match.Where.Expressions[0])
 	require.Nil(t, err)
-	mustWritePUML(t, sqlAST)
+	visualization.MustWritePUML(sqlAST, "/home/zinic/graph.puml")
 
-	extractedAST, err := pgsql.Extract([]pgsql.Expression{pgsql.Identifier("s"), pgsql.CompoundIdentifier{"s", "properties"}}, sqlAST)
+	extractedAST, err := fold.Extract([]pgsql.Expression{pgsql.Identifier("s"), pgsql.CompoundIdentifier{"s", "properties"}}, sqlAST)
 	require.Nil(t, err)
 
-	mustWritePUML(t, extractedAST)
+	visualization.MustWritePUML(extractedAST, "/home/zinic/graph.puml")
 
 	output, err := format.FormatExpression(extractedAST)
 	require.Nil(t, err)

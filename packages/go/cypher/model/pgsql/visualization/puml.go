@@ -2,7 +2,9 @@ package visualization
 
 import (
 	"fmt"
+	"github.com/specterops/bloodhound/cypher/model/pgsql"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -50,4 +52,18 @@ func GraphToPUMLDigraph(graph Graph, writer io.Writer) error {
 	}
 
 	return WriteStrings(writer, "}\n@enduml\n")
+}
+
+func MustWritePUML(expression pgsql.Expression, path string) {
+	if graph, err := SQLToDigraph(expression); err != nil {
+		panic(fmt.Sprintf("error translating SQL AST to digraph: %v", err))
+	} else if fout, err := os.OpenFile(path, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644); err != nil {
+		panic(fmt.Sprintf("error opening file at path %s: %v", path, err))
+	} else {
+		defer fout.Close()
+
+		if err := GraphToPUMLDigraph(graph, fout); err != nil {
+			panic(fmt.Sprintf("error writing graph to PUML wrapped digraph: %v", err))
+		}
+	}
 }

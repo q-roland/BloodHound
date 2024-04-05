@@ -15,7 +15,6 @@ type WalkCursor[E any] struct {
 	Expression  E
 	Branches    []E
 	BranchIndex int
-	Tag         any
 }
 
 func (s *WalkCursor[E]) NumBranchesRemaining() int {
