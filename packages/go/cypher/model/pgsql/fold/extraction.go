@@ -71,7 +71,7 @@ func (s *Dependencies) Key() string {
 }
 
 type Extractor struct {
-	treeBuilder  *pgsql.ExpressionTreeBuilder
+	treeBuilder  *pgsql.TreeBuilder
 	dependencies []*Dependencies
 	err          error
 	done         bool
@@ -84,8 +84,9 @@ func (s *Extractor) setError(err error) {
 
 func (s *Extractor) Enter(expression pgsql.Expression) {
 	switch typedExpression := expression.(type) {
-	case pgsql.Operator, pgsql.Literal:
-		if err := s.treeBuilder.Current().Assign(typedExpression); err != nil {
+	case pgsql.Operator:
+	case pgsql.Literal:
+		if err := s.treeBuilder.AssignExpression(typedExpression); err != nil {
 			s.setError(err)
 		}
 
@@ -96,7 +97,7 @@ func (s *Extractor) Enter(expression pgsql.Expression) {
 			dependency.Track(identifier)
 		}
 
-		if err := s.treeBuilder.Current().Assign(typedExpression); err != nil {
+		if err := s.treeBuilder.AssignExpression(typedExpression); err != nil {
 			s.setError(err)
 		}
 
@@ -107,7 +108,7 @@ func (s *Extractor) Enter(expression pgsql.Expression) {
 			dependency.Track(identifier)
 		}
 
-		if err := s.treeBuilder.Current().Assign(typedExpression); err != nil {
+		if err := s.treeBuilder.AssignExpression(typedExpression); err != nil {
 			s.setError(err)
 		}
 
@@ -116,14 +117,20 @@ func (s *Extractor) Enter(expression pgsql.Expression) {
 			Identifiers: make(map[string]struct{}),
 		})
 
-		s.treeBuilder.Current().Push(&pgsql.UnaryExpression{})
+		if err := s.treeBuilder.PushExpression(&pgsql.UnaryExpression{}); err != nil {
+			s.setError(err)
+		}
 
 	case *pgsql.BinaryExpression:
 		s.dependencies = append(s.dependencies, &Dependencies{
 			Identifiers: make(map[string]struct{}),
 		})
 
-		s.treeBuilder.Current().PushAssign(&pgsql.BinaryExpression{})
+		if err := s.treeBuilder.PushExpression(&pgsql.BinaryExpression{
+			Operator: typedExpression.Operator,
+		}); err != nil {
+			s.setError(err)
+		}
 
 	default:
 		s.setError(fmt.Errorf("unsupported expression type for binding constraint extraction: %T", expression))
@@ -150,27 +157,12 @@ func (s *Extractor) Exit(expression pgsql.Expression) {
 		}
 
 		if differs {
-			foundContainingAnd := s.treeBuilder.CreateOffshoot(func(index int, expression pgsql.Expression) bool {
-				switch typedExpression := expression.(type) {
-				case *pgsql.BinaryExpression:
-					switch typedOperator := typedExpression.Operator.(type) {
-					case pgsql.Operator:
-						if typedOperator.String() == "and" {
-							return true
-						}
-					}
-				}
-
-				// TODO: Stopped here on ripping the whole branch out
-				return false
-			})
-
-			if foundContainingAnd {
-				//visualization.MustWritePUML(s.treeBuilder.Current(), "/home/zinic/graph.puml")
+			if err := s.treeBuilder.Offshoot(); err != nil {
+				s.setError(err)
 			}
 		}
 
-		//s.builder.Pop(1)
+		s.treeBuilder.PopExpression()
 
 	case *pgsql.UnaryExpression:
 		//s.builder.Pop(1)
@@ -186,8 +178,11 @@ func (s *Extractor) Error() error {
 }
 
 func Extract(targets []pgsql.Expression, expression pgsql.Expression) (pgsql.Expression, error) {
+	treeBuilder := &pgsql.TreeBuilder{}
+	treeBuilder.Push(&pgsql.Tree{})
+
 	extractor := &Extractor{
-		//builder: &pgsql.ExpressionBuilder{},
+		treeBuilder: treeBuilder,
 	}
 
 	return nil, pgsql.WalkExpression(expression, extractor)
