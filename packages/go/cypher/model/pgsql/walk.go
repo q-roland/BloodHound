@@ -4,11 +4,23 @@ import (
 	"fmt"
 )
 
-type Visitor interface {
-	Enter(expression Expression)
-	Exit(expression Expression)
+type CancelableErrorHandler interface {
 	Done() bool
 	Error() error
+}
+
+type Visitor interface {
+	CancelableErrorHandler
+
+	Visit(expression Expression)
+}
+
+type HierarchicalVisitor interface {
+	CancelableErrorHandler
+
+	Enter(expression Expression)
+	Visit(expression Expression)
+	Exit(expression Expression)
 }
 
 type WalkCursor[E any] struct {
@@ -49,7 +61,48 @@ func SetBranches[E any, T any](cursor *WalkCursor[E], branches ...T) error {
 	return nil
 }
 
-func WalkExpression(expression Expression, visitor Visitor) error {
+type WalkOrder int
+
+func (s WalkOrder) Visiting(visitor Visitor) OrderedVisitor {
+	return OrderedVisitor{
+		order:   s,
+		visitor: visitor,
+	}
+}
+
+const (
+	WalkOrderPrefix WalkOrder = iota
+	WalkOrderPostfix
+)
+
+type OrderedVisitor struct {
+	order   WalkOrder
+	visitor Visitor
+}
+
+func (s OrderedVisitor) Done() bool {
+	return s.visitor.Done()
+}
+
+func (s OrderedVisitor) Error() error {
+	return s.visitor.Error()
+}
+
+func (s OrderedVisitor) Enter(expression Expression) {
+	if s.order == WalkOrderPrefix {
+		s.visitor.Visit(expression)
+	}
+}
+
+func (s OrderedVisitor) Visit(expression Expression) {}
+
+func (s OrderedVisitor) Exit(expression Expression) {
+	if s.order == WalkOrderPostfix {
+		s.visitor.Visit(expression)
+	}
+}
+
+func Walk(expression Expression, visitor HierarchicalVisitor) error {
 	var stack []*WalkCursor[Expression]
 
 	if cursor, err := newSQLWalkCursor(expression); err != nil {
@@ -59,13 +112,20 @@ func WalkExpression(expression Expression, visitor Visitor) error {
 	}
 
 	for len(stack) > 0 && !visitor.Done() {
-		nextExpressionNode := stack[len(stack)-1]
+		var (
+			nextExpressionNode = stack[len(stack)-1]
+			isFirstVisit       = nextExpressionNode.IsFirstVisit()
+		)
 
-		if nextExpressionNode.IsFirstVisit() {
+		if isFirstVisit {
 			visitor.Enter(nextExpressionNode.Expression)
 		}
 
 		if nextExpressionNode.HasNext() {
+			if !isFirstVisit {
+				visitor.Visit(nextExpressionNode.Expression)
+			}
+
 			if cursor, err := newSQLWalkCursor(nextExpressionNode.NextBranch()); err != nil {
 				return err
 			} else {

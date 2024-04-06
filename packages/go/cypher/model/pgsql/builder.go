@@ -109,28 +109,14 @@ func (s *ExpressionBuilder) PushAssign(expression Expression) error {
 func Assign(assignmentTarget, branch Expression) error {
 	switch typedAssignmentTarget := assignmentTarget.(type) {
 	case *UnaryExpression:
-		if _, isOperator := branch.(Operator); isOperator {
-			if typedAssignmentTarget.Operator != nil {
-				return ErrOperatorAlreadyAssigned
-			}
-
-			typedAssignmentTarget.Operator = branch
-		} else {
-			if typedAssignmentTarget.Operand != nil {
-				return ErrOperandAlreadyAssigned
-			}
-
-			typedAssignmentTarget.Operand = branch
+		if typedAssignmentTarget.Operand != nil {
+			return ErrOperandAlreadyAssigned
 		}
 
-	case *BinaryExpression:
-		if _, isOperator := branch.(Operator); isOperator {
-			if typedAssignmentTarget.Operator != nil {
-				return ErrOperatorAlreadyAssigned
-			}
+		typedAssignmentTarget.Operand = branch
 
-			typedAssignmentTarget.Operator = branch
-		} else if typedAssignmentTarget.LeftOperand == nil {
+	case *BinaryExpression:
+		if typedAssignmentTarget.LeftOperand == nil {
 			typedAssignmentTarget.LeftOperand = branch
 		} else if typedAssignmentTarget.RightOperand == nil {
 			typedAssignmentTarget.RightOperand = branch
@@ -158,104 +144,53 @@ func (s *Tree) Peek() Expression {
 	return s.stack[len(s.stack)-1]
 }
 
-func (s *Tree) Pop() {
+func (s *Tree) Pop() Expression {
+	expression := s.Peek()
 	s.stack = s.stack[:len(s.stack)-1]
+
+	return expression
+}
+
+func (s *Tree) And(expression Expression) error {
+	switch typedAssignmentTarget := s.Peek().(type) {
+	case *BinaryExpression:
+		if typedAssignmentTarget.LeftOperand == nil {
+			typedAssignmentTarget.LeftOperand = expression
+		} else if typedAssignmentTarget.RightOperand == nil {
+			typedAssignmentTarget.RightOperand = expression
+		} else {
+			typedAssignmentTarget.RightOperand = &BinaryExpression{
+				Operator:     Operator("and"),
+				LeftOperand:  typedAssignmentTarget.RightOperand,
+				RightOperand: expression,
+			}
+
+			s.Push(typedAssignmentTarget.RightOperand)
+		}
+
+	default:
+		s.Push(&BinaryExpression{
+			Operator:     Operator("and"),
+			LeftOperand:  s.Pop(),
+			RightOperand: expression,
+		})
+	}
+
+	return nil
 }
 
 func (s *Tree) Assign(expression Expression) error {
 	return Assign(s.stack[len(s.stack)-1], expression)
 }
 
-func (s *Tree) Push(expression Expression) error {
+func (s *Tree) Push(expression Expression) {
 	if len(s.stack) == 0 {
 		s.root = expression
-	} else if err := s.Assign(expression); err != nil {
-		return err
 	}
 
 	s.stack = append(s.stack, expression)
-	return nil
 }
 
 func (s *Tree) Root() Expression {
 	return s.root
-}
-
-type TreeBuilder struct {
-	trees []*Tree
-}
-
-func IsOperator(expression Expression, matcher Operator) bool {
-	if operator, isOperator := expression.(Operator); isOperator {
-		return operator == matcher
-	}
-
-	return false
-}
-
-func (s *TreeBuilder) Offshoot() error {
-	tree := s.trees[len(s.trees)-1]
-
-	for idx := len(tree.stack) - 1; idx >= 0; idx-- {
-		switch nextExpression := tree.stack[idx].(type) {
-		case *BinaryExpression:
-			if IsOperator(nextExpression.Operator, "and") {
-				// cleave here
-				descendingExpression := tree.stack[idx+1]
-
-				switch typedExpression := tree.stack[idx].(type) {
-				case *BinaryExpression:
-					// Did we ascend from the left or right operand expression
-					if typedExpression.LeftOperand == descendingExpression {
-						typedExpression.LeftOperand = nil
-						tree.stack = tree.stack[0:idx]
-					} else {
-						typedExpression.RightOperand = nil
-						tree.stack = tree.stack[0:idx]
-					}
-
-				default:
-					return fmt.Errorf("can't offshoot from expression type: %T", descendingExpression)
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (s *TreeBuilder) Peek() *Tree {
-	return s.trees[len(s.trees)-1]
-}
-
-func (s *TreeBuilder) Push(tree *Tree) {
-	s.trees = append(s.trees, tree)
-}
-
-func (s *TreeBuilder) Pop() *Tree {
-	tree := s.Peek()
-	s.trees = s.trees[:len(s.trees)-1]
-
-	return tree
-}
-
-func (s *TreeBuilder) AssignExpression(expression Expression) error {
-	return s.Peek().Assign(expression)
-}
-
-func (s *TreeBuilder) PushExpression(expression Expression) error {
-	if len(s.trees) == 0 {
-		s.trees = append(s.trees, &Tree{})
-	}
-
-	return s.Peek().Push(expression)
-}
-
-func (s *TreeBuilder) PopExpression() {
-	currentTree := s.trees[len(s.trees)-1]
-	currentTree.Pop()
-
-	if currentTree.Depth() == 0 {
-		s.trees = s.trees[:len(s.trees)-1]
-	}
 }

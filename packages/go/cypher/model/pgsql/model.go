@@ -1,6 +1,34 @@
 package pgsql
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
+
+type IdentifierDependencies struct {
+	Identifiers map[string]struct{}
+}
+
+func NewIdentifierDependencies() *IdentifierDependencies {
+	return &IdentifierDependencies{
+		Identifiers: map[string]struct{}{},
+	}
+}
+
+func (s *IdentifierDependencies) Track(identifier string) {
+	s.Identifiers[identifier] = struct{}{}
+}
+
+func (s *IdentifierDependencies) Key() string {
+	depSlice := make([]string, 0, len(s.Identifiers))
+
+	for key := range s.Identifiers {
+		depSlice = append(depSlice, key)
+	}
+
+	slices.Sort(depSlice)
+	return strings.Join(depSlice, "")
+}
 
 type FormattingLiteral string
 
@@ -123,9 +151,12 @@ type LiteralNodeValue struct {
 // <expr> > <expr>
 // table.column > 12345
 type BinaryExpression struct {
-	LeftOperand  Expression
-	Operator     Expression
-	RightOperand Expression
+	Rewritten         bool
+	Operator          Expression
+	LeftOperand       Expression
+	LOperDependencies *IdentifierDependencies
+	RightOperand      Expression
+	ROperDependencies *IdentifierDependencies
 }
 
 func (s BinaryExpression) Expression() Expression {
@@ -595,8 +626,4 @@ func (s Query) Statement() Statement {
 
 func (s Query) NodeType() string {
 	return "query"
-}
-
-func Walk(query *Query, visitor func(node SyntaxNode)) {
-
 }

@@ -62,6 +62,8 @@ func (s *SQLVisualizer) Enter(expression pgsql.Expression) {
 	s.stack = append(s.stack, nextNode)
 }
 
+func (s *SQLVisualizer) Visit(expression pgsql.Expression) {}
+
 func (s *SQLVisualizer) Exit(expression pgsql.Expression) {
 	s.stack = s.stack[0 : len(s.stack)-1]
 }
@@ -83,5 +85,5 @@ func SQLToDigraph(expression pgsql.Expression) (Graph, error) {
 		visualizer.Graph.Title = title.Value
 	}
 
-	return visualizer.Graph, pgsql.WalkExpression(expression, visualizer)
+	return visualizer.Graph, pgsql.Walk(expression, visualizer)
 }

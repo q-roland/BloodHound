@@ -11,7 +11,7 @@ import (
 )
 
 func TestExtract(t *testing.T) {
-	regularQuery, err := frontend.ParseCypher(frontend.NewContext(), "match (s), (e) where s.name = 'test' and e.name = 'test' and s.value = '1234' return s, e")
+	regularQuery, err := frontend.ParseCypher(frontend.NewContext(), "match (s), (e) where s.name = 'test' and e.name = 'test' and s.value = e.value return s, e")
 	require.Nil(t, err)
 
 	sqlAST, err := pgsql.TranslateCypherExpression(regularQuery.SingleQuery.SinglePartQuery.ReadingClauses[0].Match.Where.Expressions[0])

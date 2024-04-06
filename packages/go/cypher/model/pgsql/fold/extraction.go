@@ -3,8 +3,7 @@ package fold
 import (
 	"fmt"
 	"github.com/specterops/bloodhound/cypher/model/pgsql"
-	"slices"
-	"strings"
+	"github.com/specterops/bloodhound/cypher/model/pgsql/visualization"
 )
 
 type ExtractionTag struct {
@@ -51,30 +50,12 @@ func ExpressionMatches(expression pgsql.Expression, matchers []pgsql.Expression)
 	return false, nil
 }
 
-type Dependencies struct {
-	Identifiers map[string]struct{}
-}
-
-func (s *Dependencies) Track(identifier string) {
-	s.Identifiers[identifier] = struct{}{}
-}
-
-func (s *Dependencies) Key() string {
-	depSlice := make([]string, 0, len(s.Identifiers))
-
-	for key := range s.Identifiers {
-		depSlice = append(depSlice, key)
-	}
-
-	slices.Sort(depSlice)
-	return strings.Join(depSlice, "")
-}
-
 type Extractor struct {
-	treeBuilder  *pgsql.TreeBuilder
-	dependencies []*Dependencies
-	err          error
-	done         bool
+	conjoinedConstraintsByKey map[string]*pgsql.Tree
+	dependentExpression       pgsql.Expression
+	operatorDeps              []*pgsql.IdentifierDependencies
+	err                       error
+	done                      bool
 }
 
 func (s *Extractor) setError(err error) {
@@ -82,90 +63,113 @@ func (s *Extractor) setError(err error) {
 	s.done = true
 }
 
+func (s *Extractor) setErrorf(format string, args ...any) {
+	s.err = fmt.Errorf(format, args...)
+	s.done = true
+}
+
 func (s *Extractor) Enter(expression pgsql.Expression) {
 	switch typedExpression := expression.(type) {
-	case pgsql.Operator:
-	case pgsql.Literal:
-		if err := s.treeBuilder.AssignExpression(typedExpression); err != nil {
-			s.setError(err)
-		}
-
 	case pgsql.Identifier:
-		identifier := typedExpression.String()
-
-		for _, dependency := range s.dependencies {
-			dependency.Track(identifier)
-		}
-
-		if err := s.treeBuilder.AssignExpression(typedExpression); err != nil {
-			s.setError(err)
+		for _, operatorDeps := range s.operatorDeps {
+			operatorDeps.Track(typedExpression.String())
 		}
 
 	case pgsql.CompoundIdentifier:
-		identifier := typedExpression.String()
-
-		for _, dependency := range s.dependencies {
-			dependency.Track(identifier)
-		}
-
-		if err := s.treeBuilder.AssignExpression(typedExpression); err != nil {
-			s.setError(err)
-		}
-
-	case *pgsql.UnaryExpression:
-		s.dependencies = append(s.dependencies, &Dependencies{
-			Identifiers: make(map[string]struct{}),
-		})
-
-		if err := s.treeBuilder.PushExpression(&pgsql.UnaryExpression{}); err != nil {
-			s.setError(err)
+		for _, operatorDeps := range s.operatorDeps {
+			operatorDeps.Track(typedExpression.String())
 		}
 
 	case *pgsql.BinaryExpression:
-		s.dependencies = append(s.dependencies, &Dependencies{
-			Identifiers: make(map[string]struct{}),
-		})
+		s.operatorDeps = append(s.operatorDeps, pgsql.NewIdentifierDependencies())
+		typedExpression.LOperDependencies = s.operatorDeps[len(s.operatorDeps)-1]
+	}
+}
 
-		if err := s.treeBuilder.PushExpression(&pgsql.BinaryExpression{
-			Operator: typedExpression.Operator,
-		}); err != nil {
-			s.setError(err)
-		}
-
-	default:
-		s.setError(fmt.Errorf("unsupported expression type for binding constraint extraction: %T", expression))
+func (s *Extractor) Visit(expression pgsql.Expression) {
+	switch typedExpression := expression.(type) {
+	case *pgsql.BinaryExpression:
+		s.operatorDeps[len(s.operatorDeps)-1] = pgsql.NewIdentifierDependencies()
+		typedExpression.ROperDependencies = s.operatorDeps[len(s.operatorDeps)-1]
 	}
 }
 
 func (s *Extractor) Exit(expression pgsql.Expression) {
-	switch expression.(type) {
+	switch typedExpression := expression.(type) {
 	case *pgsql.BinaryExpression:
-		var (
-			expressionDeps   = s.dependencies[len(s.dependencies)-1]
-			expressionDepKey = expressionDeps.Key()
-			differs          = false
-		)
+		s.operatorDeps = s.operatorDeps[:len(s.operatorDeps)-1]
 
-		s.dependencies = s.dependencies[0 : len(s.dependencies)-1]
+		switch typedOperator := typedExpression.Operator.(type) {
+		case pgsql.Operator:
+			if typedOperator == "and" {
+				typedExpression.Rewritten = true
 
-		for idx := len(s.dependencies) - 1; idx >= 0; idx-- {
-			previousDepKey := s.dependencies[idx].Key()
+				if len(typedExpression.LOperDependencies.Identifiers) == 1 {
+					fmt.Printf("Left operand references only a single bound identifier")
+				} else if len(typedExpression.LOperDependencies.Identifiers) > 1 {
+					fmt.Printf("Left operand references only a multiple bound identifiers")
+				}
 
-			if differs = previousDepKey != expressionDepKey; differs {
-				break
+				if len(typedExpression.ROperDependencies.Identifiers) == 1 {
+					fmt.Printf("Right operand references only a single bound identifier")
+				} else if len(typedExpression.ROperDependencies.Identifiers) > 1 {
+					fmt.Printf("Right operand references only a multiple bound identifiers")
+				}
+
+				rewrite := true
+
+				switch typedLeftOper := typedExpression.LeftOperand.(type) {
+				case *pgsql.BinaryExpression:
+					rewrite = !typedLeftOper.Rewritten
+				}
+
+				if rewrite {
+					leftDepKey := typedExpression.LOperDependencies.Key()
+
+					visualization.MustWritePUML(typedExpression.LeftOperand, "/home/zinic/digraphs/stage.puml")
+
+					if tree, hasTree := s.conjoinedConstraintsByKey[leftDepKey]; hasTree {
+						if err := tree.And(typedExpression.LeftOperand); err != nil {
+							s.setError(err)
+						}
+					} else {
+						newTree := &pgsql.Tree{}
+						newTree.Push(typedExpression.LeftOperand)
+
+						s.conjoinedConstraintsByKey[leftDepKey] = newTree
+					}
+				}
+
+				rewrite = true
+
+				switch typedRightOper := typedExpression.RightOperand.(type) {
+				case *pgsql.BinaryExpression:
+					rewrite = !typedRightOper.Rewritten
+
+				default:
+				}
+
+				if rewrite {
+					rightDepKey := typedExpression.ROperDependencies.Key()
+
+					visualization.MustWritePUML(typedExpression.RightOperand, "/home/zinic/digraphs/stage.puml")
+
+					if tree, hasTree := s.conjoinedConstraintsByKey[rightDepKey]; hasTree {
+						if err := tree.And(typedExpression.RightOperand); err != nil {
+							s.setError(err)
+						}
+					} else {
+						newTree := &pgsql.Tree{}
+						newTree.Push(typedExpression.RightOperand)
+
+						s.conjoinedConstraintsByKey[rightDepKey] = newTree
+					}
+				}
 			}
+
+		default:
+			s.setErrorf("unknown operator type: %T", typedExpression)
 		}
-
-		if differs {
-			if err := s.treeBuilder.Offshoot(); err != nil {
-				s.setError(err)
-			}
-		}
-
-		s.treeBuilder.PopExpression()
-
-	case *pgsql.UnaryExpression:
-		//s.builder.Pop(1)
 	}
 }
 
@@ -178,12 +182,17 @@ func (s *Extractor) Error() error {
 }
 
 func Extract(targets []pgsql.Expression, expression pgsql.Expression) (pgsql.Expression, error) {
-	treeBuilder := &pgsql.TreeBuilder{}
-	treeBuilder.Push(&pgsql.Tree{})
-
 	extractor := &Extractor{
-		treeBuilder: treeBuilder,
+		conjoinedConstraintsByKey: map[string]*pgsql.Tree{},
 	}
 
-	return nil, pgsql.WalkExpression(expression, extractor)
+	if err := pgsql.Walk(expression, extractor); err != nil {
+		return nil, err
+	}
+
+	for key, tree := range extractor.conjoinedConstraintsByKey {
+		visualization.MustWritePUML(tree.Root(), fmt.Sprintf("/home/zinic/digraphs/%s.puml", key))
+	}
+
+	return nil, nil
 }
