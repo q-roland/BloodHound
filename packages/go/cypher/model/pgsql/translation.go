@@ -51,8 +51,16 @@ func TranslateCypherExpression(expression model.Expression) (Expression, error) 
 			}
 
 		case *model.Literal:
-			literal := AsLiteral(typedCypherExpression.Value)
-			literal.Null = typedCypherExpression.Null
+			var literal Literal
+
+			if strLiteral, isStr := typedCypherExpression.Value.(string); isStr {
+				// Cypher parser wraps string literals with ' characters - unwrap them first
+				literal = AsLiteral(strLiteral[1 : len(strLiteral)-1])
+				literal.Null = typedCypherExpression.Null
+			} else {
+				literal = AsLiteral(typedCypherExpression.Value)
+				literal.Null = typedCypherExpression.Null
+			}
 
 			if err := sqlBuilder.Assign(literal); err != nil {
 				return nil, err

@@ -60,17 +60,17 @@ func (s *Extractor) Exit(expression pgsql.Expression) {
 			if typedOperator == "and" {
 				typedExpression.Rewritten = true
 
-				if len(typedExpression.LOperDependencies.Identifiers) == 1 {
-					fmt.Printf("Left operand references only a single bound identifier")
-				} else if len(typedExpression.LOperDependencies.Identifiers) > 1 {
-					fmt.Printf("Left operand references only a multiple bound identifiers")
-				}
+				//if len(typedExpression.LOperDependencies.Identifiers) == 1 {
+				//	fmt.Printf("Left operand references only a single bound identifier")
+				//} else if len(typedExpression.LOperDependencies.Identifiers) > 1 {
+				//	fmt.Printf("Left operand references only a multiple bound identifiers")
+				//}
 
-				if len(typedExpression.ROperDependencies.Identifiers) == 1 {
-					fmt.Printf("Right operand references only a single bound identifier")
-				} else if len(typedExpression.ROperDependencies.Identifiers) > 1 {
-					fmt.Printf("Right operand references only a multiple bound identifiers")
-				}
+				//if len(typedExpression.ROperDependencies.Identifiers) == 1 {
+				//	fmt.Printf("Right operand references only a single bound identifier")
+				//} else if len(typedExpression.ROperDependencies.Identifiers) > 1 {
+				//	fmt.Printf("Right operand references only a multiple bound identifiers")
+				//}
 
 				rewrite := true
 
@@ -137,7 +137,7 @@ func (s *Extractor) Error() error {
 	return s.err
 }
 
-func Extract(targets []pgsql.Expression, expression pgsql.Expression) (pgsql.Expression, error) {
+func FragmentExpressionTree(targets []pgsql.Expression, expression pgsql.Expression) (map[string]*pgsql.Tree, error) {
 	extractor := &Extractor{
 		conjoinedConstraintsByKey: map[string]*pgsql.Tree{},
 	}
@@ -150,5 +150,5 @@ func Extract(targets []pgsql.Expression, expression pgsql.Expression) (pgsql.Exp
 		visualization.MustWritePUML(tree.Root(), fmt.Sprintf("/home/zinic/digraphs/%s.puml", key))
 	}
 
-	return nil, nil
+	return extractor.conjoinedConstraintsByKey, nil
 }
