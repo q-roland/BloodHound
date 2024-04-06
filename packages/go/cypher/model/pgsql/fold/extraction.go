@@ -6,50 +6,6 @@ import (
 	"github.com/specterops/bloodhound/cypher/model/pgsql/visualization"
 )
 
-type ExtractionTag struct {
-	Matched bool
-}
-
-func ExpressionMatches(expression pgsql.Expression, matchers []pgsql.Expression) (bool, error) {
-	switch typedExpression := expression.(type) {
-	case pgsql.Identifier:
-		for _, matcher := range matchers {
-			switch typedMatcher := matcher.(type) {
-			case pgsql.Identifier:
-				if typedExpression == typedMatcher {
-					return true, nil
-				}
-			}
-		}
-
-	case pgsql.CompoundIdentifier:
-		for _, matcher := range matchers {
-			switch typedMatcher := matcher.(type) {
-			case pgsql.CompoundIdentifier:
-				matches := len(typedExpression) == len(typedMatcher)
-
-				if matches {
-					for idx, expressionIdentifier := range typedExpression {
-						if expressionIdentifier != typedMatcher[idx] {
-							matches = false
-							break
-						}
-					}
-
-					if matches {
-						return true, nil
-					}
-				}
-			}
-		}
-
-	default:
-		return false, fmt.Errorf("unable to match for expression type %T", expression)
-	}
-
-	return false, nil
-}
-
 type Extractor struct {
 	conjoinedConstraintsByKey map[string]*pgsql.Tree
 	dependentExpression       pgsql.Expression
