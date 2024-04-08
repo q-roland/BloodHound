@@ -159,6 +159,34 @@ type BinaryExpression struct {
 	ROperDependencies *IdentifierDependencies
 }
 
+func (s BinaryExpression) CombinedDependencies() map[string]struct{} {
+	combined := make(map[string]struct{}, len(s.LOperDependencies.Identifiers)+len(s.ROperDependencies.Identifiers))
+
+	for key := range s.LOperDependencies.Identifiers {
+		combined[key] = struct{}{}
+	}
+
+	for key := range s.ROperDependencies.Identifiers {
+		combined[key] = struct{}{}
+	}
+
+	return combined
+}
+
+func (s BinaryExpression) DependsOn(id string) bool {
+	if s.LOperDependencies != nil {
+		_, hasDependency := s.LOperDependencies.Identifiers[id]
+		return hasDependency
+	}
+
+	if s.ROperDependencies != nil {
+		_, hasDependency := s.ROperDependencies.Identifiers[id]
+		return hasDependency
+	}
+
+	return false
+}
+
 func (s BinaryExpression) Expression() Expression {
 	return s
 }

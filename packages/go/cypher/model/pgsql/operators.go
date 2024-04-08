@@ -13,3 +13,11 @@ func (s Operator) String() string {
 func (s Operator) NodeType() string {
 	return "operator"
 }
+
+const (
+	OperatorAnd           Operator = "and"
+	OperatorOr            Operator = "or"
+	OperatorNot           Operator = "not"
+	OperatorJSONField     Operator = "->"
+	OperatorJSONTextField Operator = "->>"
+)

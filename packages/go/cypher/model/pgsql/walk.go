@@ -2,11 +2,45 @@ package pgsql
 
 import (
 	"fmt"
+	"github.com/specterops/bloodhound/cypher/model"
 )
 
 type CancelableErrorHandler interface {
 	Done() bool
 	Error() error
+	SetDone()
+	SetError(err error)
+	SetErrorf(format string, args ...any)
+}
+
+type cancelableErrorHandler struct {
+	done bool
+	err  error
+}
+
+func (s *cancelableErrorHandler) Done() bool {
+	return s.done
+}
+
+func (s *cancelableErrorHandler) SetDone() {
+	s.done = true
+}
+
+func (s *cancelableErrorHandler) SetError(err error) {
+	s.err = err
+	s.done = true
+}
+
+func (s *cancelableErrorHandler) SetErrorf(format string, args ...any) {
+	s.SetError(fmt.Errorf(format, args...))
+}
+
+func (s *cancelableErrorHandler) Error() error {
+	return s.err
+}
+
+func NewCancelableErrorHandler() CancelableErrorHandler {
+	return &cancelableErrorHandler{}
 }
 
 type Visitor interface {
@@ -15,12 +49,12 @@ type Visitor interface {
 	Visit(expression Expression)
 }
 
-type HierarchicalVisitor interface {
+type HierarchicalVisitor[E any] interface {
 	CancelableErrorHandler
 
-	Enter(expression Expression)
-	Visit(expression Expression)
-	Exit(expression Expression)
+	Enter(expression E)
+	Visit(expression E)
+	Exit(expression E)
 }
 
 type WalkCursor[E any] struct {
@@ -102,10 +136,10 @@ func (s OrderedVisitor) Exit(expression Expression) {
 	}
 }
 
-func Walk(expression Expression, visitor HierarchicalVisitor) error {
-	var stack []*WalkCursor[Expression]
+func Walk[E any](expression E, visitor HierarchicalVisitor[E], cursorConstructor func(expression E) (*WalkCursor[E], error)) error {
+	var stack []*WalkCursor[E]
 
-	if cursor, err := newSQLWalkCursor(expression); err != nil {
+	if cursor, err := cursorConstructor(expression); err != nil {
 		return err
 	} else {
 		stack = append(stack, cursor)
@@ -126,7 +160,7 @@ func Walk(expression Expression, visitor HierarchicalVisitor) error {
 				visitor.Visit(nextExpressionNode.Expression)
 			}
 
-			if cursor, err := newSQLWalkCursor(nextExpressionNode.NextBranch()); err != nil {
+			if cursor, err := cursorConstructor(nextExpressionNode.NextBranch()); err != nil {
 				return err
 			} else {
 				stack = append(stack, cursor)
@@ -138,4 +172,12 @@ func Walk(expression Expression, visitor HierarchicalVisitor) error {
 	}
 
 	return visitor.Error()
+}
+
+func PgSQLWalk(expression Expression, visitor HierarchicalVisitor[Expression]) error {
+	return Walk(expression, visitor, newSQLWalkCursor)
+}
+
+func CypherWalk(expression model.Expression, visitor HierarchicalVisitor[model.Expression]) error {
+	return Walk(expression, visitor, newCypherWalkCursor)
 }

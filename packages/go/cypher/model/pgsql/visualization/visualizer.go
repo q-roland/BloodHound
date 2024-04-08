@@ -9,11 +9,11 @@ import (
 )
 
 type SQLVisualizer struct {
+	pgsql.CancelableErrorHandler
+
 	Graph  Graph
 	stack  []Node
 	nextID int
-	done   bool
-	err    error
 }
 
 func (s *SQLVisualizer) getNextID(prefix string) string {
@@ -21,11 +21,6 @@ func (s *SQLVisualizer) getNextID(prefix string) string {
 	s.nextID += 1
 
 	return prefix + strconv.Itoa(nextID)
-}
-
-func (s *SQLVisualizer) setError(err error) {
-	s.err = err
-	s.done = true
 }
 
 func (s *SQLVisualizer) Enter(expression pgsql.Expression) {
@@ -68,16 +63,10 @@ func (s *SQLVisualizer) Exit(expression pgsql.Expression) {
 	s.stack = s.stack[0 : len(s.stack)-1]
 }
 
-func (s *SQLVisualizer) Done() bool {
-	return s.done
-}
-
-func (s *SQLVisualizer) Error() error {
-	return s.err
-}
-
 func SQLToDigraph(expression pgsql.Expression) (Graph, error) {
-	visualizer := &SQLVisualizer{}
+	visualizer := &SQLVisualizer{
+		CancelableErrorHandler: pgsql.NewCancelableErrorHandler(),
+	}
 
 	if title, err := format.FormatExpression(expression); err != nil {
 		return Graph{}, err
@@ -85,5 +74,5 @@ func SQLToDigraph(expression pgsql.Expression) (Graph, error) {
 		visualizer.Graph.Title = title.Value
 	}
 
-	return visualizer.Graph, pgsql.Walk(expression, visualizer)
+	return visualizer.Graph, pgsql.PgSQLWalk(expression, visualizer)
 }

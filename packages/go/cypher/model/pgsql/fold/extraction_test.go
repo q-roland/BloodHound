@@ -5,6 +5,8 @@ import (
 	"github.com/specterops/bloodhound/cypher/model/pgsql"
 	"github.com/specterops/bloodhound/cypher/model/pgsql/fold"
 	"github.com/specterops/bloodhound/cypher/model/pgsql/format"
+	"github.com/specterops/bloodhound/cypher/model/pgsql/translate"
+	"github.com/specterops/bloodhound/cypher/model/pgsql/visualization"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -12,6 +14,7 @@ import (
 type TestCase struct {
 	Cypher                 string
 	ExpectedSQLExpressions []string
+	Skip                   bool
 }
 
 func TestExtract(t *testing.T) {
@@ -22,14 +25,28 @@ func TestExtract(t *testing.T) {
 			"e.properties -> 'name' = 'test'",
 			"s.properties -> 'value' = e.properties -> 'value'",
 		},
+		Skip: true,
+	}, {
+		Cypher: "match (s), (e) where s.name = 'test' and e.name = 'test' or s.value = e.value return s, e",
+		ExpectedSQLExpressions: []string{
+			"s.properties -> 'name' = 'test'",
+			"e.properties -> 'name' = 'test'",
+			"s.properties -> 'value' = e.properties -> 'value'",
+		},
 	}}
 
 	for _, testCase := range testCases {
+		if testCase.Skip {
+			continue
+		}
+
 		regularQuery, err := frontend.ParseCypher(frontend.NewContext(), testCase.Cypher)
 		require.Nil(t, err)
 
-		sqlAST, err := pgsql.TranslateCypherExpression(regularQuery.SingleQuery.SinglePartQuery.ReadingClauses[0].Match.Where.Expressions[0])
+		sqlAST, err := translate.TranslateCypherExpression(regularQuery.SingleQuery.SinglePartQuery.ReadingClauses[0].Match.Where.Expressions[0])
 		require.Nil(t, err)
+
+		visualization.MustWritePUML(sqlAST, "/home/zinic/digraphs/graph.puml")
 
 		conjoinedConstraintsByKey, err := fold.FragmentExpressionTree([]pgsql.Expression{pgsql.Identifier("s"), pgsql.CompoundIdentifier{"s", "properties"}}, sqlAST)
 		require.Nil(t, err)

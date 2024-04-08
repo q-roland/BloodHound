@@ -5,20 +5,7 @@ import (
 	"github.com/specterops/bloodhound/cypher/model"
 )
 
-func propertyLookupToBinaryExpression(propertyLookup *model.PropertyLookup) (*BinaryExpression, error) {
-	// Property lookups become a binary expression tree of JSON operators
-	if propertyLookupAtom, err := model.ExpressionAs[*model.Variable](propertyLookup.Atom); err != nil {
-		return nil, err
-	} else {
-		return &BinaryExpression{
-			LeftOperand:  CompoundIdentifier{Identifier(propertyLookupAtom.Symbol), "properties"},
-			Operator:     Operator("->"),
-			RightOperand: AsLiteral(propertyLookup.Symbols[0]),
-		}, nil
-	}
-}
-
-func newCypherTranslationCursor(expression model.Expression) (*WalkCursor[model.Expression], error) {
+func newCypherWalkCursor(expression model.Expression) (*WalkCursor[model.Expression], error) {
 	cursor := &WalkCursor[model.Expression]{
 		Expression: expression,
 	}
@@ -52,6 +39,9 @@ func newCypherTranslationCursor(expression model.Expression) (*WalkCursor[model.
 		return cursor, SetBranches(cursor, typedExpression.Expression)
 
 	case *model.Conjunction:
+		return cursor, SetBranches(cursor, typedExpression.Expressions...)
+
+	case *model.Disjunction:
 		return cursor, SetBranches(cursor, typedExpression.Expressions...)
 
 	case *model.Comparison:

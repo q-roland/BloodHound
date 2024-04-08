@@ -7,21 +7,11 @@ import (
 )
 
 type Extractor struct {
+	pgsql.CancelableErrorHandler
+
 	conjoinedConstraintsByKey map[string]*pgsql.Tree
 	dependentExpression       pgsql.Expression
 	operatorDeps              []*pgsql.IdentifierDependencies
-	err                       error
-	done                      bool
-}
-
-func (s *Extractor) setError(err error) {
-	s.err = err
-	s.done = true
-}
-
-func (s *Extractor) setErrorf(format string, args ...any) {
-	s.err = fmt.Errorf(format, args...)
-	s.done = true
 }
 
 func (s *Extractor) Enter(expression pgsql.Expression) {
@@ -33,7 +23,7 @@ func (s *Extractor) Enter(expression pgsql.Expression) {
 
 	case pgsql.CompoundIdentifier:
 		for _, operatorDeps := range s.operatorDeps {
-			operatorDeps.Track(typedExpression.String())
+			operatorDeps.Track(typedExpression[0].String())
 		}
 
 	case *pgsql.BinaryExpression:
@@ -57,20 +47,8 @@ func (s *Extractor) Exit(expression pgsql.Expression) {
 
 		switch typedOperator := typedExpression.Operator.(type) {
 		case pgsql.Operator:
-			if typedOperator == "and" {
+			if typedOperator == pgsql.OperatorAnd {
 				typedExpression.Rewritten = true
-
-				//if len(typedExpression.LOperDependencies.Identifiers) == 1 {
-				//	fmt.Printf("Left operand references only a single bound identifier")
-				//} else if len(typedExpression.LOperDependencies.Identifiers) > 1 {
-				//	fmt.Printf("Left operand references only a multiple bound identifiers")
-				//}
-
-				//if len(typedExpression.ROperDependencies.Identifiers) == 1 {
-				//	fmt.Printf("Right operand references only a single bound identifier")
-				//} else if len(typedExpression.ROperDependencies.Identifiers) > 1 {
-				//	fmt.Printf("Right operand references only a multiple bound identifiers")
-				//}
 
 				rewrite := true
 
@@ -82,11 +60,9 @@ func (s *Extractor) Exit(expression pgsql.Expression) {
 				if rewrite {
 					leftDepKey := typedExpression.LOperDependencies.Key()
 
-					visualization.MustWritePUML(typedExpression.LeftOperand, "/home/zinic/digraphs/stage.puml")
-
 					if tree, hasTree := s.conjoinedConstraintsByKey[leftDepKey]; hasTree {
-						if err := tree.And(typedExpression.LeftOperand); err != nil {
-							s.setError(err)
+						if err := tree.ContinueBinaryExpression(pgsql.OperatorAnd, typedExpression.LeftOperand); err != nil {
+							s.SetError(err)
 						}
 					} else {
 						newTree := &pgsql.Tree{}
@@ -108,11 +84,9 @@ func (s *Extractor) Exit(expression pgsql.Expression) {
 				if rewrite {
 					rightDepKey := typedExpression.ROperDependencies.Key()
 
-					visualization.MustWritePUML(typedExpression.RightOperand, "/home/zinic/digraphs/stage.puml")
-
 					if tree, hasTree := s.conjoinedConstraintsByKey[rightDepKey]; hasTree {
-						if err := tree.And(typedExpression.RightOperand); err != nil {
-							s.setError(err)
+						if err := tree.ContinueBinaryExpression(pgsql.OperatorAnd, typedExpression.RightOperand); err != nil {
+							s.SetError(err)
 						}
 					} else {
 						newTree := &pgsql.Tree{}
@@ -124,25 +98,18 @@ func (s *Extractor) Exit(expression pgsql.Expression) {
 			}
 
 		default:
-			s.setErrorf("unknown operator type: %T", typedExpression)
+			s.SetErrorf("unknown operator type: %T", typedExpression)
 		}
 	}
 }
 
-func (s *Extractor) Done() bool {
-	return s.done
-}
-
-func (s *Extractor) Error() error {
-	return s.err
-}
-
-func FragmentExpressionTree(targets []pgsql.Expression, expression pgsql.Expression) (map[string]*pgsql.Tree, error) {
+func FragmentExpressionTree(expression pgsql.Expression) (map[string]*pgsql.Tree, error) {
 	extractor := &Extractor{
+		CancelableErrorHandler:    pgsql.NewCancelableErrorHandler(),
 		conjoinedConstraintsByKey: map[string]*pgsql.Tree{},
 	}
 
-	if err := pgsql.Walk(expression, extractor); err != nil {
+	if err := pgsql.PgSQLWalk(expression, extractor); err != nil {
 		return nil, err
 	}
 
