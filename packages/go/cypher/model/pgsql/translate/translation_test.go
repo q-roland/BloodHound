@@ -24,12 +24,13 @@ var testCases = map[string]string{
 	"match ()-[r]->(), ()-[e]->() return r, e": "with r as (select * from edge r), e as (select * from edge e) select * from r, e",
 
 	//
-	"match ()-[r]->() where r.value = 42 return r":                              "with r as (select * from edge r where r.properties -> 'value' = 42) select * from r",
-	"match (n)-[r]->() where n.name = '123' return n, r":                        "with n as (select * from node n where n.properties -> 'name' = '123'), r as (select * from edge r, n where n.id = r.start_id) select * from n, r",
-	"match (s)-[r]->(e) where s.name = '123' and e.name = '321' return s, r, e": "with s as (select * from node s where s.properties -> 'name' = '123'), r as (select * from edge r, s where s.id = r.start_id), e as (select * from node e, r where e.id = r.end_id and e.properties -> 'name' = '321') select * from s, r, e",
+	"match ()-[r]->() where r.value = 42 return r":                                                           "with r as (select * from edge r where r.properties -> 'value' = 42) select * from r",
+	"match (n)-[r]->() where n.name = '123' return n, r":                                                     "with n as (select * from node n where n.properties -> 'name' = '123'), r as (select * from edge r, n where n.id = r.start_id) select * from n, r",
+	"match (s)-[r]->(e) where s.name = '123' and e.name = '321' return s, r, e":                              "with s as (select * from node s where s.properties -> 'name' = '123'), r as (select * from edge r, s where s.id = r.start_id), e as (select * from node e, r where e.id = r.end_id and e.properties -> 'name' = '321') select * from s, r, e",
+	"match (f), (s)-[r]->(e) where not f.bool_field and s.name = '123' and e.name = '321' return f, s, r, e": "with f as (select * from node f where not f.properties -> 'bool_field'), s as (select * from node s where s.properties -> 'name' = '123'), r as (select * from edge r, s where s.id = r.start_id), e as (select * from node e, r where e.id = r.end_id and e.properties -> 'name' = '321') select * from f, s, r, e",
 
-	//
-	//"match p = ()-[]->()<-[]-() return p": "",
+	// TODO: Stopped here
+	"match p = ()-[]->() return p": "",
 }
 
 func TestTranslate(t *testing.T) {
