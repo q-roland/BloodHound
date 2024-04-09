@@ -1272,6 +1272,16 @@ type PatternPart struct {
 	PatternElements         []*PatternElement
 }
 
+func (s *PatternPart) HasRelationshipPattern() bool {
+	for _, patternElement := range s.PatternElements {
+		if patternElement.IsRelationshipPattern() {
+			return true
+		}
+	}
+
+	return false
+}
+
 func NewPatternPart() *PatternPart {
 	return &PatternPart{}
 }

@@ -15,6 +15,7 @@ func (s Operator) NodeType() string {
 }
 
 const (
+	OperatorEquals           Operator = "="
 	OperatorAnd           Operator = "and"
 	OperatorOr            Operator = "or"
 	OperatorNot           Operator = "not"
