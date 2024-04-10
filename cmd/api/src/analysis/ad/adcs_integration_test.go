@@ -21,7 +21,6 @@ package ad_test
 
 import (
 	"context"
-
 	"github.com/specterops/bloodhound/analysis"
 	"github.com/specterops/bloodhound/analysis/impact"
 	"github.com/specterops/bloodhound/graphschema"
@@ -86,7 +85,7 @@ func TestADCSESC1(t *testing.T) {
 		}
 		operation.Done()
 
-		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+		err = db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
 			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
 				return query.Kind(query.Relationship(), ad.ADCSESC1)
 			})); err != nil {
@@ -108,10 +107,29 @@ func TestADCSESC1(t *testing.T) {
 				//Domain 4 ESC1 edges created
 				require.True(t, results.Contains(harness.ADCSESC1Harness.Group42))
 				require.True(t, results.Contains(harness.ADCSESC1Harness.Group43))
-
 			}
+
+			testEdgeComp := func(domainId graph.ID, expectedLength int) {
+				if edge, err := tx.Relationships().Filterf(func() graph.Criteria {
+					return query.And(
+						query.Kind(query.Relationship(), ad.ADCSESC1),
+						query.Equals(query.EndID(), domainId),
+					)
+				}).First(); err != nil {
+					t.Fatalf("error fetching esc1 edges in integration test; %v", err)
+				} else {
+					comp, err := ad2.GetADCSESC1EdgeComposition(context.Background(), db, edge)
+					assert.Nil(t, err)
+					assert.Equal(t, expectedLength, len(comp.AllNodes()))
+				}
+			}
+			testEdgeComp(harness.ADCSESC1Harness.Domain1.ID, 8)
+			testEdgeComp(harness.ADCSESC1Harness.Domain2.ID, 6)
+			testEdgeComp(harness.ADCSESC1Harness.Domain3.ID, 6)
+			testEdgeComp(harness.ADCSESC1Harness.Domain4.ID, 6)
 			return nil
 		})
+		assert.Nil(t, err)
 	})
 }
 
